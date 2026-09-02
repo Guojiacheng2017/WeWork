@@ -21,10 +21,20 @@ export const weworkToolDefinitions = [
   ['wework_submit_deliverable', 'Submit output document IDs and verification evidence for human review. Does not approve the work.', schema({ summary: string, documentIds: { type: 'array', items: string, minItems: 1, maxItems: 20 }, evidence: string, knownIssues: { type: 'string' } }, ['summary', 'documentIds', 'evidence'])],
 ].map(([name, description, parameters]) => ({ name, description, parameters }));
 
+const projectToolDefinitions = [
+  ['issues', 'wework_project_list_issues', 'List work items from the enabled Issues capability.', schema()],
+  ['issues', 'wework_project_create_issue', 'Create a work item in the shared Collaboration Database.', schema({ title: string, description: { type: 'string' }, priorityId: { type: 'string' }, startDate: { type: 'string' }, dueDate: { type: 'string' } }, ['title'])],
+  ['board', 'wework_project_move_board_item', 'Move a shared work item to another Board status.', schema({ workItemId: string, statusId: string }, ['workItemId', 'statusId'])],
+  ['gantt', 'wework_project_schedule_gantt_item', 'Update shared work item dates from Gantt.', schema({ workItemId: string, startDate: string, dueDate: string }, ['workItemId', 'startDate', 'dueDate'])],
+].map(([capability, name, description, parameters]) => ({ capability, name, description, parameters }));
+
 export function createWeWorkTools(wework, spec, runSignal) {
   let observedInputs = spec.wework.inputSignature;
   const actor = { employeeId: spec.employeeId, runId: spec.id, deliveryId: spec.wework.deliveryId };
-  return weworkToolDefinitions.filter((d) => spec.wework.group ? ['wework_get_team', 'wework_list_tasks', 'wework_send_team_message', 'wework_read_group_message', 'wework_request_collaboration'].includes(d.name) : !spec.wework.chat ? !['wework_read_group_message', 'wework_request_collaboration'].includes(d.name) : d.name === 'wework_get_team').map((definition) => ({
+  const projectModule = spec.wework.modules?.projectManagement;
+  const enabledProjectTools = projectModule?.installed && projectModule.enabled
+    ? projectToolDefinitions.filter((definition) => projectModule.capabilities.includes(definition.capability)) : [];
+  return [...weworkToolDefinitions, ...enabledProjectTools].filter((d) => d.name.startsWith('wework_project_') || (spec.wework.group ? ['wework_get_team', 'wework_list_tasks', 'wework_send_team_message', 'wework_read_group_message', 'wework_request_collaboration'].includes(d.name) : !spec.wework.chat ? !['wework_read_group_message', 'wework_request_collaboration'].includes(d.name) : d.name === 'wework_get_team')).map((definition) => ({
     ...definition, label: definition.name,
     async execute(callId, input, signal) {
       if (signal?.aborted || runSignal?.aborted) throw new Error('WeWork run cancelled');
@@ -35,6 +45,10 @@ export function createWeWorkTools(wework, spec, runSignal) {
       const team = state.teams.find((t) => t.id === spec.wework.teamId);
       const employee = team?.employees.find((b) => b.id === spec.employeeId);
       if (!employee || (!spec.wework.chat && employee.currentWorkItem?.id !== spec.workId)) throw new Error('WeWork run no longer owns this work');
+      if (definition.name.startsWith('wework_project_')) {
+        const currentModule = team.modules?.projectManagement;
+        if (!currentModule?.installed || !currentModule.enabled || !currentModule.capabilities.includes(definition.capability)) throw new Error('WeWork project capability is no longer enabled');
+      }
       if (spec.wework.group) {
         const delivery = team.collaborationDeliveries?.find((d) => d.id === spec.wework.deliveryId);
         if (!delivery || delivery.runId !== spec.id || delivery.employeeId !== employee.id || delivery.status !== 'running') throw new Error('group delivery no longer active');
@@ -61,6 +75,10 @@ export function createWeWorkTools(wework, spec, runSignal) {
         case 'wework_submit_deliverable':
           if (observedInputs !== taskInputSignature(employee.currentWorkItem)) throw new Error('Task inputs changed during execution. Read task context again and reconcile the output before submitting.');
           result = await wework.api.submitDeliverable(spec.workId, input, actor); break;
+        case 'wework_project_list_issues': result = team.collaborationDatabase?.workItems ?? []; break;
+        case 'wework_project_create_issue': result = await wework.api.createCollaborationWorkItem(team.id, { projectId: 'project-main', ...input }); break;
+        case 'wework_project_move_board_item': result = await wework.api.updateCollaborationWorkItem(team.id, input.workItemId, { statusId: input.statusId }); break;
+        case 'wework_project_schedule_gantt_item': result = await wework.api.updateCollaborationWorkItem(team.id, input.workItemId, { startDate: input.startDate, dueDate: input.dueDate }); break;
       }
       return { content: [{ type: 'text', text: JSON.stringify(result) }], details: result };
     },

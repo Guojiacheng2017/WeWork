@@ -5,6 +5,8 @@ import type {
   WorkspaceAssignment, WorkspaceDownloadRequest, WorkspaceSyncRequest, WorkspaceUploadRequest,
 } from '../domain/wework.ts';
 import { normalizeRuntimeProfile, normalizeRuntimeProfileDraft, normalizeSessionExecution, normalizeWorkspaceAssignment } from '../domain/wework.ts';
+import type { CollaborationWorkItem, ProjectCapability, TeamModuleRegistry } from '../domain/collaboration.ts';
+import { createCollaborationDatabase, normalizeCollaborationDatabase, normalizeTeamModules } from '../domain/collaboration.ts';
 
 type LocalState = { teams: WeWorkTeam[]; runtimeProfiles: RuntimeProfile[]; eventCursor: number };
 type WorkInput = Pick<WorkItem, 'title' | 'goal' | 'priority' | 'category' | 'runtimeProfileId' | 'constraints' | 'acceptanceCriteria'>;
@@ -33,6 +35,8 @@ const normalizeTeams = (input: unknown): WeWorkTeam[] => {
   for (const team of teams) {
     if (!team || typeof team !== 'object' || typeof team.id !== 'string' || !safeIdentifier.test(team.id) || teamIds.has(team.id) || !Array.isArray(team.employees)) throw new Error('invalid immutable team id');
     teamIds.add(team.id);
+    team.modules = normalizeTeamModules(team.modules);
+    team.collaborationDatabase = normalizeCollaborationDatabase(team.collaborationDatabase);
     team.workspaceAssignment = normalizeWorkspaceAssignment(team.workspaceAssignment);
     for (const employee of team.employees) {
       if (!employee || typeof employee !== 'object' || typeof employee.id !== 'string' || !safeIdentifier.test(employee.id) || employeeIds.has(employee.id)) throw new Error('invalid immutable employee id');
@@ -71,8 +75,9 @@ export function createLocalWeWorkApi(
     const state = raw ? JSON.parse(raw) : { teams: [], runtimeProfiles: [], eventCursor: 0 };
     if (!Array.isArray(state.runtimeProfiles) || !Number.isSafeInteger(state.eventCursor) || state.eventCursor < 0) throw new Error('invalid local snapshot');
     state.runtimeProfiles = state.runtimeProfiles.map((profile: unknown) => normalizeRuntimeProfile(profile));
+    const teamsBeforeMigration = JSON.stringify(state.teams);
     state.teams = normalizeTeams(state.teams);
-    if (migrateSessionExecution(state)) storage.setItem(key, JSON.stringify(state));
+    if (migrateSessionExecution(state) || teamsBeforeMigration !== JSON.stringify(state.teams)) storage.setItem(key, JSON.stringify(state));
     return state;
   };
   const write = (state: LocalState) => {
@@ -113,6 +118,19 @@ export function createLocalWeWorkApi(
     employee.currentWorkItem = next ? { ...next, status: 'running' } : undefined;
     employee.queuedWorkItems = remaining;
     employee.status = next ? 'working' : 'idle';
+  };
+  const findTeam = (state: LocalState, teamId: string) => {
+    const team = state.teams.find((candidate) => candidate.id === teamId);
+    if (!team) throw new Error('team not found');
+    return team;
+  };
+  const requireCapability = (team: WeWorkTeam, capabilities: ProjectCapability[]) => {
+    const module = team.modules!.projectManagement;
+    if (!module.installed || !module.enabled || !capabilities.some((capability) => module.capabilities.includes(capability))) {
+      throw Object.assign(new Error('project management capability is disabled'), { code: 'CAPABILITY_DISABLED' });
+    }
+    if (!team.collaborationDatabase) throw new Error('collaboration database is unavailable');
+    return team.collaborationDatabase;
   };
 
   return {
@@ -165,9 +183,37 @@ export function createLocalWeWorkApi(
         artifacts: [], queuedWorkItems: [], completedWorkItems: [],
       };
       if (input.sessionExecution) lead.activeSession.execution = normalizeSessionExecution(input.sessionExecution);
-      const team: WeWorkTeam = { weworkSessionId: identifier('wework'), id: identifier('team'), name: input.name, description: input.description || '', topology: 'roundTable', employees: [lead], pendingWorks: [] };
+      const team: WeWorkTeam = { weworkSessionId: identifier('wework'), id: identifier('team'), name: input.name, description: input.description || '', topology: 'roundTable', employees: [lead], pendingWorks: [], modules: normalizeTeamModules(undefined) };
       state.teams.push(team);
       return team;
+    }),
+    configureTeamModules: async (teamId: string, input: TeamModuleRegistry) => mutate((state) => {
+      const team = findTeam(state, teamId);
+      team.modules = normalizeTeamModules(input);
+      if (team.modules!.projectManagement.installed && !team.collaborationDatabase) team.collaborationDatabase = createCollaborationDatabase(now());
+      if (!team.modules!.projectManagement.capabilities.includes('dag') && team.topology === 'workflowDag') team.topology = 'roundTable';
+      return team;
+    }),
+    createCollaborationWorkItem: async (teamId: string, input: Pick<CollaborationWorkItem, 'projectId' | 'title'> & Partial<Omit<CollaborationWorkItem, 'id' | 'projectId' | 'title' | 'createdAt' | 'updatedAt'>>) => mutate((state) => {
+      const team = findTeam(state, teamId); const database = requireCapability(team, ['issues', 'board', 'gantt', 'timeline', 'calendar', 'database']);
+      if (!database.projects.some((project) => project.id === input.projectId) || !input.title?.trim()) throw new Error('invalid work item');
+      const timestamp = now();
+      const item: CollaborationWorkItem = { id: identifier('item'), projectId: input.projectId, title: input.title.trim(), description: input.description ?? '', statusId: input.statusId ?? database.statuses[0].id, priorityId: input.priorityId ?? database.priorities[1].id, labelIds: input.labelIds ?? [], assigneeIds: input.assigneeIds ?? [], cycleId: input.cycleId, milestoneId: input.milestoneId, startDate: input.startDate, dueDate: input.dueDate, createdAt: timestamp, updatedAt: timestamp };
+      database.workItems.push(item); database.activities.push({ id: identifier('activity'), workItemId: item.id, action: 'work_item.created', createdAt: timestamp });
+      return item;
+    }),
+    updateCollaborationWorkItem: async (teamId: string, workItemId: string, patch: Partial<Pick<CollaborationWorkItem, 'title' | 'description' | 'statusId' | 'priorityId' | 'cycleId' | 'milestoneId' | 'labelIds' | 'assigneeIds' | 'startDate' | 'dueDate'>>) => mutate((state) => {
+      const team = findTeam(state, teamId); const database = requireCapability(team, ['issues', 'board', 'gantt', 'timeline', 'calendar', 'database']);
+      const item = database.workItems.find((candidate) => candidate.id === workItemId); if (!item) throw new Error('work item not found');
+      Object.assign(item, clone(patch), { updatedAt: now() });
+      database.activities.push({ id: identifier('activity'), workItemId: item.id, action: 'work_item.updated', createdAt: item.updatedAt, details: clone(patch) });
+      return item;
+    }),
+    deleteCollaborationDatabase: async (teamId: string, input: { confirm: boolean }) => mutate((state) => {
+      if (!input?.confirm) throw Object.assign(new Error('explicit confirmation is required'), { code: 'CONFIRMATION_REQUIRED' });
+      const team = findTeam(state, teamId); delete team.collaborationDatabase;
+      team.modules = { projectManagement: { ...team.modules!.projectManagement, enabled: false } };
+      return { deleted: true as const };
     }),
     archiveTeam: async (teamId: string) => mutate((state) => {
       const team = state.teams.find((candidate) => candidate.id === teamId);

@@ -54,3 +54,16 @@ npm run server:dev
 
 Browser-only UI work remains available with `npm run dev:web`. Desktop-native
 workspace selection, credentials and Runtime execution require `npm run dev`.
+
+## Team capability modules
+
+Every team runs with the lightweight WeWork core: roster, group chat, targeted
+or broadcast delivery, Harness execution, and replies. Project Management is an
+explicit team installation and can independently expose Issues, Board, Gantt,
+Timeline, Calendar, Database/Table, and DAG capabilities.
+
+Issues, Board, and Gantt are projections of one versioned Collaboration
+Database stored in the team's Workspace. Disabling the module unloads its views
+and Agent tools but retains all records. Re-enabling restores them; permanent
+data deletion is a separate confirmed operation in Team Settings. Agent tools
+are derived from the current team's enabled capabilities for every new run.

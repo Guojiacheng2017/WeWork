@@ -1,5 +1,6 @@
 import type { CollaborationDelivery, Handoff } from '../local/collaborationState';
 import type { WorkRecords } from '../local/workContext';
+import type { CollaborationDatabase, TeamModuleRegistry } from './collaboration';
 
 export type SkillRef = {
   id: string;
@@ -303,6 +304,8 @@ export type WeWorkTeam = {
   pendingWorks: WorkItem[];
   teamMessages?: MessageItem[];
   workflow?: WorkflowTemplate;
+  modules?: TeamModuleRegistry;
+  collaborationDatabase?: CollaborationDatabase;
 };
 
-export type TeamView = 'roundTable' | 'workflowDag' | 'teamManagement';
+export type TeamView = 'roundTable' | 'workflowDag' | 'teamManagement' | 'issues' | 'board' | 'gantt';

@@ -4,6 +4,7 @@ import { normalizeWorkspaceAssignment, type WeWorkEmployee, type WeWorkTeam, typ
 import { useWeWorkStore } from '../../state/weworkStore';
 import { weworkHost, type AvailableSkill, type HarnessId, type HarnessInstallation, type HarnessModel } from '../../runtime/weworkHost';
 import { executionWithCatalogModel, migrateLegacyCatalogSelection } from './workspaceDraft';
+import { PROJECT_CAPABILITIES, type ProjectCapability } from '../../domain/collaboration';
 
 const adapterHarness = (adapter: SessionExecution['adapter']): HarnessId => adapter === 'smalldash' ? 'smalldashharness' : adapter;
 const harnessAdapter = (harness: HarnessId): SessionExecution['adapter'] => harness === 'smalldashharness' ? 'smalldash' : harness;
@@ -150,12 +151,8 @@ export function EmployeeConfigDialog({ employee, team, onClose }: { employee: We
 const issueTone: Record<WorkItem['status'], { label: string; dot: string }> = {
   pending: { label: 'Backlog', dot: 'bg-slate-400' }, running: { label: 'In progress', dot: 'bg-amber-500' }, completed: { label: 'Done', dot: 'bg-emerald-500' }, blocked: { label: 'Blocked', dot: 'bg-rose-500' },
 };
-
 function teamIssues(team: WeWorkTeam) {
-  return [
-    ...team.pendingWorks,
-    ...team.employees.flatMap((employee) => [employee.currentWorkItem, ...(employee.queuedWorkItems ?? []), ...(employee.completedWorkItems ?? [])].filter((work): work is WorkItem => Boolean(work))),
-  ].filter((work, index, all) => all.findIndex((item) => item.id === work.id) === index);
+  return [...team.pendingWorks, ...team.employees.flatMap((employee) => [employee.currentWorkItem, ...(employee.queuedWorkItems ?? []), ...(employee.completedWorkItems ?? [])].filter((work): work is WorkItem => Boolean(work)))].filter((work, index, all) => all.findIndex((item) => item.id === work.id) === index);
 }
 
 function ContextTagComposer({ value, suggestions, onChange }: { value: string[]; suggestions: string[]; onChange: (value: string[]) => void }) {
@@ -201,7 +198,7 @@ function TeamChatView({ team }: { team: WeWorkTeam }) {
   </div>;
 }
 
-function TeamIssuesView({ team }: { team: WeWorkTeam }) {
+export function TeamIssuesView({ team }: { team: WeWorkTeam }) {
   const updateWorkItem = useWeWorkStore((state) => state.updateWorkItem);
   const dispatchWorkToEmployee = useWeWorkStore((state) => state.dispatchWorkToEmployee);
   const completeCurrentWork = useWeWorkStore((state) => state.completeCurrentWork);
@@ -227,6 +224,10 @@ function TeamIssuesView({ team }: { team: WeWorkTeam }) {
 function TeamSettingsView({ team }: { team: WeWorkTeam }) {
   const updateTeamWorkspace = useWeWorkStore((state) => state.updateTeamWorkspace);
   const archiveTeam = useWeWorkStore((state) => state.archiveTeam);
+  const configureTeamModules = useWeWorkStore((state) => state.configureTeamModules);
+  const deleteProjectData = useWeWorkStore((state) => state.deleteProjectData);
+  const module = team.modules?.projectManagement ?? { installed: false, enabled: false, capabilities: [] as ProjectCapability[] };
+  const configure = (patch: Partial<typeof module>) => configureTeamModules(team.id, { projectManagement: { ...module, ...patch } });
   const [weworkRoot, setWeWorkRoot] = useState('Documents/WeWork');
   const [configRoot, setConfigRoot] = useState('Documents/.wework');
   const persistedPath = team.workspaceAssignment?.kind === 'local' ? team.workspaceAssignment.rootPath ?? '' : '';
@@ -257,6 +258,7 @@ function TeamSettingsView({ team }: { team: WeWorkTeam }) {
   const effectiveTeamPath = localPath.trim() || defaultTeamPath;
   const defaultEmployeePath = `${effectiveTeamPath}/employees/<employee-id>`;
   return <div className="mx-auto max-w-3xl space-y-5 pb-8">
+    <section className="rounded-xl border border-slate-200 bg-white p-5"><div className="flex items-start justify-between gap-4"><div><h3 className="text-sm font-bold text-slate-900">Project Management 模块</h3><p className="mt-1 text-xs leading-5 text-slate-500">按团队安装和启用；停用保留 Collaboration Database，重新启用即可恢复。</p></div><button type="button" onClick={() => void configure(module.installed ? { enabled: !module.enabled } : { installed: true, enabled: true })} className={`rounded-lg px-3 py-2 text-xs font-semibold ${module.enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-900 text-white'}`}>{module.enabled ? '停用模块' : module.installed ? '启用模块' : '安装并启用'}</button></div>{module.installed && <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">{PROJECT_CAPABILITIES.map((capability) => <label key={capability} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-600"><input type="checkbox" disabled={!module.enabled} checked={module.capabilities.includes(capability)} onChange={(event) => void configure({ capabilities: event.target.checked ? [...module.capabilities, capability] : module.capabilities.filter((item) => item !== capability) })} />{capability}</label>)}</div>}{team.collaborationDatabase && <div className="mt-4 border-t border-slate-100 pt-4"><button type="button" className="text-xs font-semibold text-rose-600" onClick={() => { if (window.confirm('永久删除该团队的 Collaboration Database？模块停用不会删除数据，此操作不可撤销。')) void deleteProjectData(team.id); }}>独立删除项目数据…</button></div>}</section>
     <section className="rounded-xl border border-slate-200 bg-white p-5">
       <h3 className="text-sm font-bold text-slate-900">团队 Workspace</h3>
       <p className="mt-1 text-xs leading-5 text-slate-500">团队计划、群聊、上下文、Workflow、共享 Skill 与成员目录都归属于团队 Workspace。</p>
@@ -273,7 +275,7 @@ function TeamSettingsView({ team }: { team: WeWorkTeam }) {
 
 export function TeamManagementView() {
   const { teams, selectedTeamId, setAddEmployeeOpen, openWorkbench, removeEmployee, setTeamLead, serviceError } = useWeWorkStore();
-  const [section, setSection] = useState<'members' | 'chat' | 'issues' | 'settings'>('members');
+  const [section, setSection] = useState<'members' | 'chat' | 'settings'>('members');
   const [configEmployeeId, setConfigEmployeeId] = useState<string | null>(null);
   const team = teams.find((item) => item.id === selectedTeamId);
   if (!team) return null;
@@ -281,7 +283,7 @@ export function TeamManagementView() {
 
   return <section className="h-full overflow-hidden bg-slate-50 px-8 py-5"><div className="mx-auto flex h-full max-w-6xl flex-col">
     <div className="mb-5 flex min-h-11 shrink-0 items-end justify-between border-b border-slate-200">
-      <nav aria-label="团队管理功能" className="flex self-stretch">{([{ id: 'members', label: '成员职责', icon: UserRound }, { id: 'chat', label: '团队群聊', icon: MessageCircle }, { id: 'issues', label: 'Issues', icon: Columns3 }, { id: 'settings', label: '团队设置', icon: Settings2 }] as const).map(({ id, label, icon: Icon }) => <button key={id} type="button" aria-current={section === id ? 'page' : undefined} onClick={() => setSection(id)} className={`relative flex h-11 items-center gap-1.5 px-4 text-[11px] font-semibold transition-colors after:absolute after:inset-x-3 after:bottom-[-1px] after:h-0.5 after:rounded-full after:transition-colors ${section === id ? 'text-slate-900 after:bg-slate-900' : 'text-slate-400 after:bg-transparent hover:text-slate-700'}`}><Icon className="h-3.5 w-3.5" />{label}</button>)}</nav>
+      <nav aria-label="团队管理功能" className="flex self-stretch">{([{ id: 'members', label: '成员职责', icon: UserRound }, { id: 'chat', label: '团队群聊', icon: MessageCircle }, { id: 'settings', label: '团队设置', icon: Settings2 }] as const).map(({ id, label, icon: Icon }) => <button key={id} type="button" aria-current={section === id ? 'page' : undefined} onClick={() => setSection(id)} className={`relative flex h-11 items-center gap-1.5 px-4 text-[11px] font-semibold transition-colors after:absolute after:inset-x-3 after:bottom-[-1px] after:h-0.5 after:rounded-full after:transition-colors ${section === id ? 'text-slate-900 after:bg-slate-900' : 'text-slate-400 after:bg-transparent hover:text-slate-700'}`}><Icon className="h-3.5 w-3.5" />{label}</button>)}</nav>
       {section === 'members' && <div className="mb-2 flex gap-2"><button onClick={() => setAddEmployeeOpen(true)} className="flex items-center gap-2 rounded-lg bg-slate-900 px-3.5 py-2 text-xs font-semibold text-white hover:bg-slate-800"><Plus className="h-4 w-4" />助手入职</button></div>}
     </div>
     {serviceError && <div role="alert" className="mb-3 shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-[11px] text-amber-800"><strong className="mr-2">操作未完成</strong>{serviceError.includes('runtime profile') ? '该助手尚未绑定可用的执行配置，请从左下角“执行器与模型”创建配置后再为助手绑定。' : serviceError}</div>}
@@ -289,6 +291,6 @@ export function TeamManagementView() {
       <div className="flex items-start justify-between gap-3"><span className="grid h-10 w-10 place-items-center rounded-full text-white" style={{ background: employee.color }}><UserRound className="h-5 w-5" /></span><span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-600">{employee.isLead ? '负责人' : employee.status === 'working' ? '工作中' : '在席'}</span></div>
       <strong className="mt-3 block text-sm text-slate-900">{employee.displayName}</strong><span className="mt-1 block text-xs text-slate-500">{employee.roleName}</span><span className="mt-3 flex items-center gap-1.5 text-[11px] text-slate-400"><Wrench className="h-3.5 w-3.5" />{employee.builtInSkills.length} 项技能 · {employee.activeSession.contextRatio}% 上下文</span>
       <div className="mt-4 flex gap-1.5 border-t border-slate-100 pt-3"><button type="button" onClick={() => openWorkbench(employee.id)} className="mr-auto rounded-md px-2 py-1 text-[10px] font-semibold text-slate-600 hover:bg-slate-100">打开工作台</button><button type="button" aria-label={`配置助手 ${employee.displayName}`} onClick={() => setConfigEmployeeId(employee.id)} className="flex h-7 items-center gap-1 rounded-md px-2 text-[10px] font-semibold text-slate-600 hover:bg-slate-100" title="助手配置"><Settings2 className="h-3.5 w-3.5" />助手配置</button>{!employee.isLead && <button type="button" aria-label={`设 ${employee.displayName} 为负责人`} onClick={() => setTeamLead(team.id, employee.id)} className="grid h-7 w-7 place-items-center rounded-md text-slate-400 hover:bg-amber-50 hover:text-amber-600" title="设为负责人"><Crown className="h-3.5 w-3.5" /></button>}{!employee.isLead && <button type="button" aria-label={`移除 ${employee.displayName}`} onClick={() => removeEmployee(team.id, employee.id)} className="grid h-7 w-7 place-items-center rounded-md text-slate-400 hover:bg-rose-50 hover:text-rose-600" title="移出团队"><Trash2 className="h-3.5 w-3.5" /></button>}</div>
-    </article>)}</div> : section === 'chat' ? <TeamChatView team={team} /> : section === 'issues' ? <TeamIssuesView team={team} /> : <TeamSettingsView team={team} />}</div>
+    </article>)}</div> : section === 'chat' ? <TeamChatView team={team} /> : <TeamSettingsView team={team} />}</div>
   </div>{configEmployee && <EmployeeConfigDialog employee={configEmployee} team={team} onClose={() => setConfigEmployeeId(null)} />}</section>;
 }

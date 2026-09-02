@@ -89,6 +89,12 @@ html.wework-desktop .h-screen { height: calc(100vh - 38px); }
 }
 .workspace-view { width: 100%; height: 100%; transition: width 180ms ease; }
 .relative:has(> .pending-work-drawer) > .workspace-view { width: calc(100% - 400px); }
+.project-create { display:flex; gap:.5rem; margin-bottom:1rem; }
+.project-create input,.project-row input,.project-row select,.project-board select,.gantt-row input { border:1px solid #e2e8f0; border-radius:.5rem; background:white; padding:.45rem .65rem; font-size:.75rem; }
+.project-create input { flex:1; }.project-create button { border-radius:.5rem; background:#0f172a; color:white; padding:.5rem 1rem; font-size:.75rem; font-weight:700; }
+.project-table { overflow:hidden; border:1px solid #e2e8f0; border-radius:.75rem; background:white; }.project-row { display:grid; grid-template-columns:minmax(220px,1fr) 140px 100px 150px; gap:1rem; align-items:center; padding:.75rem 1rem; border-bottom:1px solid #f1f5f9; font-size:.75rem; }.project-head { background:#f8fafc; color:#64748b; font-size:.65rem; font-weight:700; text-transform:uppercase; }
+.project-board { display:grid; grid-template-columns:repeat(3,minmax(220px,1fr)); gap:1rem; }.project-board section { min-height:520px; border-radius:.75rem; background:#f1f5f9; padding:.75rem; }.project-board header { display:flex; gap:.5rem; align-items:center; font-size:.75rem; font-weight:700; }.project-board header i { width:.5rem; height:.5rem; border-radius:50%; }.project-board header small { margin-left:auto; }.project-board article { margin-top:.65rem; padding:.75rem; border:1px solid #e2e8f0; border-radius:.65rem; background:white; display:grid; gap:.65rem; font-size:.75rem; }
+.project-gantt { border:1px solid #e2e8f0; border-radius:.75rem; overflow:hidden; background:white; }.gantt-axis { padding:.75rem 1rem; background:#f8fafc; color:#64748b; font-size:.7rem; }.gantt-row { display:grid; grid-template-columns:minmax(200px,1fr) 190px 20px 190px; align-items:center; gap:1rem; padding:.8rem 1rem; border-top:1px solid #f1f5f9; font-size:.75rem; }.gantt-row label { display:flex; align-items:center; gap:.5rem; color:#64748b; }
 .workflow-canvas {
   background-color: #f8fafc;
   background-image: radial-gradient(circle, #cbd5e1 1px, transparent 1px);

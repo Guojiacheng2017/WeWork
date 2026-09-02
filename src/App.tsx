@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { useWeWorkStore } from './state/weworkStore';
 import { TeamSidebar } from './components/layout/TeamSidebar';
 import { StageHeader } from './components/layout/StageHeader';
@@ -12,6 +12,8 @@ import { CreateTeamModal } from './components/modals/CreateTeamModal';
 import { AddEmployeeModal } from './components/modals/AddEmployeeModal';
 import { PortalPageView } from './components/portal/PortalPageView';
 import type { PortalPage } from './domain/portalNavigation';
+
+const ProjectManagementView = lazy(() => import('./components/project/ProjectManagementView'));
 
 export const App: React.FC = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem('wework.sidebarCollapsed') === 'true');
@@ -94,7 +96,9 @@ export const App: React.FC = () => {
         {/* Central Pure 2D Stage */}
         <div className="flex-1 relative w-full h-full overflow-hidden bg-slate-50/50">
           {portalPage ? <PortalPageView page={portalPage} team={currentTeam} /> : <div className="workspace-view min-w-0">
-            {topology === 'roundTable' ? (
+            {topology === 'issues' || topology === 'board' || topology === 'gantt' ? (
+              <Suspense fallback={<div className="grid h-full place-items-center text-sm text-slate-400">正在加载项目模块…</div>}><ProjectManagementView team={currentTeam!} view={topology} /></Suspense>
+            ) : topology === 'roundTable' ? (
               <div className="relative flex h-full gap-2 p-4" onPointerMove={(event) => { if (roundResize) setPendingPanelWidth(Math.max(300, Math.min(520, roundResize.startWidth + roundResize.startX - event.clientX))); }} onPointerUp={() => setRoundResize(null)} onPointerCancel={() => setRoundResize(null)}>
               <section className="min-w-0 flex-1 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_8px_24px_rgba(15,23,42,0.08)]" aria-label="圆桌协作区">
                   <WeWorkStage3D

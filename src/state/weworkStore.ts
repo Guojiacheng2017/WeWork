@@ -5,6 +5,7 @@ import { publishGroupMessage } from '../runtime/groupMessaging';
 import { initialTeams } from '../data/mockData';
 import { LocalRunScheduler } from '../runtime/localRunScheduler';
 import { LoopbackRuntimeEvents, weworkHost, type RuntimeEvent } from '../runtime/weworkHost';
+import type { CollaborationWorkItem, ProjectCapability, TeamModuleRegistry } from '../domain/collaboration';
 
 const runtimeCapableHost = 'startRun' in weworkHost ? weworkHost : null;
 const runScheduler = runtimeCapableHost ? new LocalRunScheduler({ wework: weworkApi, host: runtimeCapableHost, managedWeWork: hostManagedWeWork, storage: window.localStorage }) : null;
@@ -13,7 +14,13 @@ const restoreWorkspacePreference = () => window.localStorage.getItem('wework.res
 const readViewModePreference = (): WeWorkState['viewMode'] => window.localStorage.getItem('wework.lastViewMode') === 'eyeLevel' ? 'eyeLevel' : 'topDown';
 const readTopologyPreference = (): TeamView | null => {
   const value = window.localStorage.getItem('wework.lastTopology');
-  return value === 'roundTable' || value === 'workflowDag' || value === 'teamManagement' ? value : null;
+  return value === 'roundTable' || value === 'workflowDag' || value === 'teamManagement' || value === 'issues' || value === 'board' || value === 'gantt' ? value : null;
+};
+const availableTopology = (team: WeWorkTeam | undefined, preferred: TeamView): TeamView => {
+  if (preferred === 'roundTable' || preferred === 'teamManagement') return preferred;
+  const capabilities = team?.modules?.projectManagement.enabled ? team.modules.projectManagement.capabilities : [];
+  const required: ProjectCapability = preferred === 'workflowDag' ? 'dag' : preferred;
+  return capabilities.includes(required) ? preferred : 'roundTable';
 };
 
 interface WeWorkState {
@@ -72,6 +79,10 @@ interface WeWorkState {
   sendWorkbenchMessage: (employeeId: string, text: string) => void;
   sendTeamMessage: (teamId: string, text: string, recipientId?: string, contextTagIds?: string[]) => Promise<void>;
   cancelGroupDelivery: (teamId:string,deliveryId:string)=>Promise<void>;
+  configureTeamModules: (teamId: string, modules: TeamModuleRegistry) => Promise<void>;
+  createProjectWorkItem: (teamId: string, title: string) => Promise<void>;
+  updateProjectWorkItem: (teamId: string, workItemId: string, patch: Partial<CollaborationWorkItem>) => Promise<void>;
+  deleteProjectData: (teamId: string) => Promise<void>;
   hydrate: () => Promise<void>;
   connectEvents: () => () => void;
   connectRuntime: () => () => void;
@@ -137,7 +148,7 @@ export const useWeWorkStore = create<WeWorkState>()((set, get) => ({
       const preferredTeamId = restoreWorkspace ? (get().selectedTeamId || window.localStorage.getItem('wework.lastTeamId') || '') : '';
       const selectedTeam = activeTeams.find((team) => team.id === preferredTeamId) || activeTeams[0];
       const selectedEmployee = selectedTeam?.employees.find((employee) => employee.id === get().selectedEmployeeId) || selectedTeam?.employees[0];
-      const currentTopology = restoreWorkspace ? (readTopologyPreference() ?? get().topology) : selectedTeam?.topology || 'roundTable';
+      const currentTopology = availableTopology(selectedTeam, restoreWorkspace ? (readTopologyPreference() ?? get().topology) : selectedTeam?.topology || 'roundTable');
       set({ teams: activeTeams, archivedTeams, runtimeProfiles: runtimeProfileResult.profiles, selectedTeamId: selectedTeam?.id || '', selectedEmployeeId: selectedEmployee?.id || null,
         viewMode: restoreWorkspace ? readViewModePreference() : 'topDown', topology: currentTopology, eventCursor: snapshot.eventCursor,
         serviceStatus: 'ready', serviceError: null });
@@ -228,7 +239,7 @@ export const useWeWorkStore = create<WeWorkState>()((set, get) => ({
     set({
       selectedTeamId: teamId,
       selectedEmployeeId: team && team.employees.length > 0 ? team.employees[0].id : null,
-      topology: team?.topology || 'roundTable',
+      topology: availableTopology(team, team?.topology || 'roundTable'),
       isWorkbenchOpen: false,
     });
     window.localStorage.setItem('wework.lastTeamId', teamId);
@@ -238,6 +249,10 @@ export const useWeWorkStore = create<WeWorkState>()((set, get) => ({
   selectEmployee: (employeeId) => set({ selectedEmployeeId: employeeId }),
   setViewMode: (viewMode) => { window.localStorage.setItem('wework.lastViewMode', viewMode); set({ viewMode }); },
   setTopology: (topology) => { window.localStorage.setItem('wework.lastTopology', topology); set({ topology }); },
+  configureTeamModules: async (teamId, modules) => { try { await weworkApi.configureTeamModules(teamId, modules); await get().hydrate(); } catch (error) { reportError(set, error); throw error; } },
+  createProjectWorkItem: async (teamId, title) => { try { await weworkApi.createCollaborationWorkItem(teamId, { projectId: 'project-main', title }); await get().hydrate(); } catch (error) { reportError(set, error); throw error; } },
+  updateProjectWorkItem: async (teamId, workItemId, patch) => { try { await weworkApi.updateCollaborationWorkItem(teamId, workItemId, patch); await get().hydrate(); } catch (error) { reportError(set, error); throw error; } },
+  deleteProjectData: async (teamId) => { try { await weworkApi.deleteCollaborationDatabase(teamId, { confirm: true }); set({ topology: 'roundTable' }); await get().hydrate(); } catch (error) { reportError(set, error); throw error; } },
   setDraggingWorkItemId: (draggingWorkItemId) => set({ draggingWorkItemId }),
   setDragHoveredEmployeeId: (dragHoveredEmployeeId) => set({ dragHoveredEmployeeId }),
 

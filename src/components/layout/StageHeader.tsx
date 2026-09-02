@@ -1,6 +1,6 @@
 import React from 'react';
 import { useWeWorkStore } from '../../state/weworkStore';
-import { CircleDot, GitFork, Users } from 'lucide-react';
+import { CalendarRange, CircleDot, Columns3, GitFork, ListChecks, Users } from 'lucide-react';
 
 export const StageHeader: React.FC = () => {
   const { teams, selectedTeamId, topology, setTopology } = useWeWorkStore();
@@ -8,6 +8,8 @@ export const StageHeader: React.FC = () => {
 
   if (!currentTeam) return null;
 
+  const project = currentTeam.modules?.projectManagement;
+  const capabilities = new Set(project?.enabled ? project.capabilities : []);
   return (
     <header className="h-14 bg-white/90 backdrop-blur-md border-b border-slate-200/80 px-6 flex items-center justify-between z-10 shrink-0 select-none">
       {/* Left: Team Title & Meta */}
@@ -27,7 +29,7 @@ export const StageHeader: React.FC = () => {
       {/* Round table and DAG are peer work views. Team management is a separate section. */}
       <div className="flex items-center gap-3">
         <div className="flex items-center bg-slate-100/90 p-1 rounded-lg border border-slate-200/80">
-          <button
+          {capabilities.has('dag') && <button
             onClick={() => setTopology('roundTable')}
             className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
               topology === 'roundTable'
@@ -37,7 +39,10 @@ export const StageHeader: React.FC = () => {
           >
             <CircleDot className="w-3.5 h-3.5" />
             <span>圆桌视角</span>
-          </button>
+          </button>}
+          {capabilities.has('issues') && <button onClick={() => setTopology('issues')} className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold ${topology === 'issues' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500'}`}><ListChecks className="h-3.5 w-3.5" />Issues</button>}
+          {capabilities.has('board') && <button onClick={() => setTopology('board')} className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold ${topology === 'board' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500'}`}><Columns3 className="h-3.5 w-3.5" />Board</button>}
+          {capabilities.has('gantt') && <button onClick={() => setTopology('gantt')} className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold ${topology === 'gantt' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500'}`}><CalendarRange className="h-3.5 w-3.5" />Gantt</button>}
           <button
             onClick={() => setTopology('workflowDag')}
             className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${

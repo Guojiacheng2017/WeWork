@@ -136,3 +136,22 @@ test('changed inputs during a run require rereading context before submission', 
   await tools.find((tool) => tool.name === 'wework_get_task_context').execute('read', {});
   assert.ok((await submit.execute('submit', input)).details.id);
 });
+
+test('capability registry controls Agent project tool exposure', async (t) => {
+  const { wework, team, employeeId, work } = await setup(t);
+  const lightweight = await wework.prepare({ id: 'capability-1', employeeId, workId: work.id });
+  assert.equal(createWeWorkTools(wework, lightweight).some((tool) => tool.name.startsWith('wework_project_')), false);
+
+  await wework.api.configureTeamModules(team.id, { projectManagement: { installed: true, enabled: true, capabilities: ['issues', 'board'] } });
+  const enabled = await wework.prepare({ id: 'capability-2', employeeId, workId: work.id });
+  const enabledTools = createWeWorkTools(wework, enabled);
+  const names = enabledTools.map((tool) => tool.name);
+  assert.equal(names.includes('wework_project_list_issues'), true);
+  assert.equal(names.includes('wework_project_move_board_item'), true);
+  assert.equal(names.includes('wework_project_schedule_gantt_item'), false);
+
+  await wework.api.configureTeamModules(team.id, { projectManagement: { installed: true, enabled: false, capabilities: ['issues', 'board'] } });
+  await assert.rejects(enabledTools.find((tool) => tool.name === 'wework_project_list_issues').execute('stale', {}), /no longer enabled/);
+  const disabled = await wework.prepare({ id: 'capability-3', employeeId, workId: work.id });
+  assert.equal(createWeWorkTools(wework, disabled).some((tool) => tool.name.startsWith('wework_project_')), false);
+});

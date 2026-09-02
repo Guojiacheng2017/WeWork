@@ -1,6 +1,7 @@
 import { createHostWeWorkApi } from './hostWeWorkApi';
 import type { WeWorkEmployee, WeWorkTeam, RuntimeProfile, SessionExecution, SkillRef, WorkItem, WorkflowTemplate, WorkspaceAssignment } from '../domain/wework';
 import { createLocalWeWorkApi } from '../local/localWeWorkApi';
+import type { CollaborationWorkItem, TeamModuleRegistry } from '../domain/collaboration';
 
 const BASE = (import.meta.env.VITE_WEWORK_API_URL || '/wework-api').replace(/\/$/, '');
 
@@ -28,6 +29,10 @@ const remoteWeWorkApi = {
   restoreTeam: (teamId: string) => request<WeWorkTeam>(`/v1/teams/${teamId}/restore`, { method: 'POST' }),
   deleteTeam: (teamId: string) => request<{ deleted: string; workspaceRetained: true }>(`/v1/teams/${teamId}`, { method: 'DELETE' }),
   updateTeamWorkspace: (teamId: string, workspaceAssignment?: WorkspaceAssignment) => request<WeWorkTeam>(`/v1/teams/${teamId}/workspace`, { method: 'PUT', body: JSON.stringify({ workspaceAssignment }) }),
+  configureTeamModules: (teamId: string, body: TeamModuleRegistry) => request<WeWorkTeam>(`/v1/teams/${teamId}/modules`, { method: 'PUT', body: JSON.stringify(body) }),
+  createCollaborationWorkItem: (teamId: string, body: object) => request<CollaborationWorkItem>(`/v1/teams/${teamId}/collaboration/work-items`, { method: 'POST', body: JSON.stringify(body) }),
+  updateCollaborationWorkItem: (teamId: string, workItemId: string, body: object) => request<CollaborationWorkItem>(`/v1/teams/${teamId}/collaboration/work-items/${workItemId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteCollaborationDatabase: (teamId: string, body: { confirm: boolean }) => request<{ deleted: true }>(`/v1/teams/${teamId}/collaboration`, { method: 'DELETE', body: JSON.stringify(body) }),
   addEmployee: (teamId: string, body: object) => request<WeWorkEmployee>(`/v1/teams/${teamId}/employees`, { method: 'POST', body: JSON.stringify(body) }),
   removeEmployee: (teamId: string, employeeId: string) => request(`/v1/teams/${teamId}/employees/${employeeId}`, { method: 'DELETE' }),
   updateEmployee: (employeeId: string, body: { displayName: string; roleName: string; runtime: WeWorkEmployee['runtime']; skills: SkillRef[]; defaultRuntimeProfileId?: string; workspaceAssignment?: WorkspaceAssignment; sessionExecution?: SessionExecution; sessionContextTagIds?: string[]; startNewSession?: boolean }) => {

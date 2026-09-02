@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TeamPartitionedWeWorkStorage, safeTeamDirectory } from '../src/host/team-partitioned-wework-storage.js';
+import { createLocalWeWorkApi } from '../../src/local/localWeWorkApi.ts';
 
 const state = (teams, cursor = 1) => JSON.stringify({ teams, runtimeProfiles: [], eventCursor: cursor });
 
@@ -49,6 +50,18 @@ test('supports canonical team workspace snapshots with a device-level index', as
   const index = JSON.parse(await readFile(join(configRoot, 'wework-index.json'), 'utf8'));
   assert.equal(JSON.parse(await readFile(join(weworkRoot, 'team-a', '.wework-state', index.teams[0].file), 'utf8')).name, 'A');
   assert.equal(JSON.parse(storage.getItem()).teams[0].id, 'team-a');
+});
+
+test('persists the shared collaboration database inside the team workspace across restart', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'wework-project-restart-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const storage = new TeamPartitionedWeWorkStorage(root);
+  const api = createLocalWeWorkApi(storage);
+  const team = await api.createTeam({ name: 'Project team', runtime: 'Workspace' });
+  await api.configureTeamModules(team.id, { projectManagement: { installed: true, enabled: true, capabilities: ['issues', 'board', 'gantt'] } });
+  const item = await api.createCollaborationWorkItem(team.id, { projectId: 'project-main', title: 'Survives restart', startDate: '2026-09-02', dueDate: '2026-09-03' });
+
+  const restarted = createLocalWeWorkApi(new TeamPartitionedWeWorkStorage(root));
+  assert.equal((await restarted.snapshot()).teams[0].collaborationDatabase.workItems[0].id, item.id);
 });
 
 test('imports prior hashed snapshots without changing the legacy partitioned store', async (t) => {

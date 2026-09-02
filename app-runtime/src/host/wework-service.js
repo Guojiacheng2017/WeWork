@@ -60,6 +60,7 @@ const uiMethods = new Set([
   'getWorkflow', 'saveWorkflow', 'sendMessage', 'sendAssistantMessage', 'sendTeamMessage',
   'getWorkContext', 'readTaskField', 'readWorkDocument', 'saveWorkDocument', 'reportProgress', 'submitDeliverable',
   'reviewDeliverable', 'getWorkRecords', 'postGroupMessage', 'retryGroupDelivery', 'cancelGroupDelivery', 'requestHandoff', 'decideHandoff', 'getGroupContext', 'readGroupMessage',
+  'configureTeamModules', 'createCollaborationWorkItem', 'updateCollaborationWorkItem', 'deleteCollaborationDatabase',
 ]);
 
 export class WeWorkService {
@@ -196,7 +197,7 @@ export class WeWorkService {
       work: { id: work.id, title: work.title, goal: work.goal, constraints: work.constraints },
       // A task has its own execution history; chat reset also invalidates its checkpoint.
       session: { id: `${employee.activeSession.id}-${chat ? 'chat' : work.id}-${profile.id}`, messages: [] },
-      wework: { teamId: team.id, weworkSessionId: team.weworkSessionId ?? team.id, chat, context, inputSignature: chat ? null : taskInputSignature(work) },
+      wework: { teamId: team.id, weworkSessionId: team.weworkSessionId ?? team.id, chat, context, inputSignature: chat ? null : taskInputSignature(work), modules: structuredClone(team.modules) },
     };
   }
   async prepareGroup(spec, state, deliveryId) {
@@ -219,7 +220,7 @@ export class WeWorkService {
       employee: { id: employee.id, displayName: employee.displayName, roleName: employee.roleName, skills: employee.builtInSkills ?? [] },
       work: { id: `group-${delivery.id}`, title: 'WeWork group conversation', goal: context.trigger.text },
       session: { id: `${team.weworkSessionId ?? team.id}-group-${employee.id}-${employee.activeSession.id}-${profile.id}`, messages: [] },
-      wework: { teamId: team.id, weworkSessionId: team.weworkSessionId ?? team.id, group: true, deliveryId, chat: true, context },
+      wework: { teamId: team.id, weworkSessionId: team.weworkSessionId ?? team.id, group: true, deliveryId, chat: true, context, modules: structuredClone(team.modules) },
     };
   }
   async #initializeWorkspaces(teams) {
