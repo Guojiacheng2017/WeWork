@@ -1,0 +1,22 @@
+[
+  { "name": "canonical default", "input": null, "valid": true, "normalized": null },
+  { "name": "app current directory", "input": { "kind": "local" }, "valid": true, "normalized": { "kind": "local" } },
+  { "name": "trimmed POSIX local path", "input": { "kind": "local", "rootPath": "  /srv/team  " }, "valid": true, "normalized": { "kind": "local", "rootPath": "/srv/team" } },
+  { "name": "Windows local path", "input": { "kind": "local", "rootPath": "C:\\WeWork\\team" }, "valid": true, "normalized": { "kind": "local", "rootPath": "C:\\WeWork\\team" } },
+  { "name": "SSH metadata", "input": { "kind": "ssh", "host": "gpu-1.example.com", "port": 22, "username": "alice_ops", "rootPath": "/srv/team", "credentialRef": "keychain:123e4567-e89b-12d3-a456-426614174000" }, "valid": true, "normalized": { "kind": "ssh", "host": "gpu-1.example.com", "port": 22, "username": "alice_ops", "rootPath": "/srv/team", "credentialRef": "keychain:123e4567-e89b-12d3-a456-426614174000" } },
+  { "name": "trimmed SSH metadata", "input": { "kind": "ssh", "host": " gpu.example.com ", "port": 22, "username": " alice ", "rootPath": " /srv/team ", "credentialRef": " vault:ssh-team " }, "valid": true, "normalized": { "kind": "ssh", "host": "gpu.example.com", "port": 22, "username": "alice", "rootPath": "/srv/team", "credentialRef": "vault:ssh-team" } },
+  { "name": "legacy hierarchical credential reference", "input": { "kind": "ssh", "host": "gpu.example.com", "port": 22, "username": "alice", "rootPath": "/srv/team", "credentialRef": "vault:ssh/team" }, "valid": true, "normalized": { "kind": "ssh", "host": "gpu.example.com", "port": 22, "username": "alice", "rootPath": "/srv/team", "credentialRef": "vault:ssh/team" } },
+  { "name": "shell metacharacters remain data in SSH root", "input": { "kind": "ssh", "host": "gpu.example.com", "port": 2222, "username": "alice", "rootPath": "/srv/$(touch pwned)'quote", "credentialRef": "vault:ssh-team" }, "valid": true, "normalized": { "kind": "ssh", "host": "gpu.example.com", "port": 2222, "username": "alice", "rootPath": "/srv/$(touch pwned)'quote", "credentialRef": "vault:ssh-team" } },
+  { "name": "relative local path", "input": { "kind": "local", "rootPath": "relative/team" }, "valid": false },
+  { "name": "numeric string port", "input": { "kind": "ssh", "host": "gpu.example.com", "port": "22", "username": "alice", "rootPath": "/srv/team", "credentialRef": "vault:ssh-team" }, "valid": false },
+  { "name": "leading option host", "input": { "kind": "ssh", "host": "-oProxyCommand=touch", "port": 22, "username": "alice", "rootPath": "/srv/team", "credentialRef": "vault:ssh-team" }, "valid": false },
+  { "name": "leading option user", "input": { "kind": "ssh", "host": "gpu.example.com", "port": 22, "username": "-root", "rootPath": "/srv/team", "credentialRef": "vault:ssh-team" }, "valid": false },
+  { "name": "host with whitespace", "input": { "kind": "ssh", "host": "gpu host", "port": 22, "username": "alice", "rootPath": "/srv/team", "credentialRef": "vault:ssh-team" }, "valid": false },
+  { "name": "root with control character", "input": { "kind": "ssh", "host": "gpu.example.com", "port": 22, "username": "alice", "rootPath": "/srv/team\nwhoami", "credentialRef": "vault:ssh-team" }, "valid": false },
+  { "name": "raw credential value", "input": { "kind": "ssh", "host": "gpu.example.com", "port": 22, "username": "alice", "rootPath": "/srv/team", "credentialRef": "hunter2" }, "valid": false },
+  { "name": "credential reference traversal", "input": { "kind": "ssh", "host": "gpu.example.com", "port": 22, "username": "alice", "rootPath": "/srv/team", "credentialRef": "vault:ssh/../secret" }, "valid": false },
+  { "name": "credential reference empty segment", "input": { "kind": "ssh", "host": "gpu.example.com", "port": 22, "username": "alice", "rootPath": "/srv/team", "credentialRef": "vault:ssh//team" }, "valid": false },
+  { "name": "credential reference control character", "input": { "kind": "ssh", "host": "gpu.example.com", "port": 22, "username": "alice", "rootPath": "/srv/team", "credentialRef": "vault:ssh/team\nsecret" }, "valid": false },
+  { "name": "secret extra field", "input": { "kind": "ssh", "host": "gpu.example.com", "port": 22, "username": "alice", "rootPath": "/srv/team", "credentialRef": "vault:ssh-team", "password": "secret" }, "valid": false },
+  { "name": "unknown kind", "input": { "kind": "sftp", "rootPath": "/srv/team" }, "valid": false }
+]

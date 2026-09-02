@@ -1,0 +1,133 @@
+@import "tailwindcss";
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+html.wework-desktop body {
+  padding-top: 38px;
+  overflow: hidden;
+  background: #f8fafc;
+}
+html.wework-desktop body::before {
+  content: "WeWork";
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 10000;
+  display: grid;
+  height: 38px;
+  place-items: center;
+  border-bottom: 1px solid rgb(226 232 240 / 82%);
+  background: rgb(255 255 255 / 88%);
+  color: #475569;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: .01em;
+  -webkit-app-region: drag;
+  backdrop-filter: blur(18px) saturate(1.15);
+}
+html.wework-desktop .h-screen { height: calc(100vh - 38px); }
+
+/* Custom subtle scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.6);
+}
+
+/* Keyframes */
+@keyframes pulseSubtle {
+  0%, 100% { transform: scale(1); opacity: 0.9; }
+  50% { transform: scale(1.05); opacity: 1; }
+}
+
+.animate-pulse-subtle {
+  animation: pulseSubtle 3s ease-in-out infinite;
+}
+
+@keyframes floatCard {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-4px); }
+}
+
+.animate-float {
+  animation: floatCard 4s ease-in-out infinite;
+}
+
+@keyframes dagPanelContentEnter {
+  from { opacity: 0; transform: translateY(10px) scale(0.99); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.dag-panel-content {
+  animation: dagPanelContentEnter 220ms cubic-bezier(.22, 1, .36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dag-panel-content { animation: none; }
+}
+
+.wework-stage {
+  position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0;
+  isolation: isolate; z-index: 0; overflow: hidden; outline: none; background: #f4f7fb;
+}
+.workspace-view { width: 100%; height: 100%; transition: width 180ms ease; }
+.relative:has(> .pending-work-drawer) > .workspace-view { width: calc(100% - 400px); }
+.workflow-canvas {
+  background-color: #f8fafc;
+  background-image: radial-gradient(circle, #cbd5e1 1px, transparent 1px);
+  background-size: 18px 18px;
+  touch-action: none;
+}
+.wework-stage > canvas { position: absolute !important; inset: 0; width: 100% !important; height: 100% !important; }
+.wework-stage--empty { display: grid; place-items: center; color: #64748b; font-size: 14px; }
+.wework-stage__overlay { position: absolute; inset: 0; overflow: hidden; pointer-events: none; opacity: 0; transition: opacity 120ms ease; }
+.wework-stage__overlay[data-ready] { opacity: 1; }
+.wework-stage[data-mode="eyeLevel"] .wework-stage__overlay {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 10%, #000 90%, transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 10%, #000 90%, transparent 100%);
+}
+.wework-stage__employee { position: absolute; aspect-ratio: 1; transform: translate(-50%, -50%); transform-origin: center; pointer-events: auto; transition: opacity 160ms ease; }
+.wework-stage__employee-button { position: relative; display: grid; width: 100%; height: 100%; padding: 0; place-items: center; overflow: visible; border: 0; border-radius: 50%; background: transparent; color: #0f172a; cursor: pointer; }
+.wework-stage__employee-button:focus-visible { outline: 2px solid #c7000b; outline-offset: 4px; }
+.wework-stage__avatar { display: block; width: 100%; height: 100%; transition: transform 180ms cubic-bezier(.22,1,.36,1); }
+.wework-stage[data-mode="topDown"] .wework-stage__employee-button:hover .wework-stage__avatar { transform: scale(1.15); }
+.wework-stage__identity { position: absolute; top: calc(100% + 5px); left: 50%; display: grid; min-width: max-content; gap: 2px; transform: translateX(-50%); text-align: center; pointer-events: none; }
+.wework-stage__identity strong { max-width: 150px; padding: 2px 8px; overflow: hidden; border-radius: 99px; background: rgb(255 255 255 / 86%); color: #0f172a; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.wework-stage__identity small { color: #64748b; font-size: 10px; white-space: nowrap; }
+.wework-stage__control { position: absolute; top: 50%; z-index: 2000; display: grid; width: 38px; height: 38px; place-items: center; padding: 0; border: 1px solid #e2e8f0; border-radius: 8px; background: rgb(255 255 255 / 90%); color: #64748b; transform: translateY(-50%); box-shadow: 0 8px 18px -12px rgb(16 24 40 / 40%); cursor: pointer; }
+.wework-stage__control:hover { border-color: #c7000b; color: #c7000b; }
+.wework-stage__control--left { left: 18px; }
+.wework-stage__control--right { right: 18px; }
+.wework-stage[data-mode="eyeLevel"] .wework-stage__control { top: auto; bottom: 24px; transform: none; }
+.wework-stage[data-mode="eyeLevel"] .wework-stage__control--left { left: calc(50% - 46px); right: auto; }
+.wework-stage[data-mode="eyeLevel"] .wework-stage__control--right { right: calc(50% - 46px); left: auto; }
+.wework-stage__employee--add { z-index: 1900; }
+.wework-stage__add-avatar { display: grid; place-items: center; }
+.wework-stage__add-surface { display: grid; width: 84%; aspect-ratio: 1; place-items: center; border: 1px solid #c9d0da; border-radius: 50%; background: #e5e7eb; color: #667085; box-shadow: 0 12px 24px -16px rgb(16 24 40 / 45%); }
+.wework-stage__add-surface svg { width: 45%; height: 45%; stroke-width: 2; }
+.wework-stage__employee-button:hover .wework-stage__add-surface { border-color: #98a2b3; background: #dfe3e8; color: #344054; }
+.wework-employee-avatar { display: block; width: 100%; height: 100%; aspect-ratio: 1; overflow: visible; filter: drop-shadow(0 4px 6px rgb(15 23 42 / 14%)); }
+.wework-employee-avatar > .employee-bot, .wework-employee-avatar > .employee-bot > svg { display: block; width: 100% !important; height: 100% !important; max-width: 100% !important; }
+.wework-employee-avatar svg { display: block; width: 100%; height: 100%; overflow: visible; }
+
+.employee-workbench-transition-shell { position: fixed; z-index: 9999; border-radius: 50%; pointer-events: none; }
+::view-transition-group(employee-workbench) { overflow: hidden; border-radius: 16px; animation-duration: 260ms; animation-timing-function: cubic-bezier(.2, .8, .2, 1); }
+::view-transition-old(employee-workbench),
+::view-transition-new(employee-workbench) { height: 100%; width: 100%; object-fit: cover; animation-duration: 260ms; }

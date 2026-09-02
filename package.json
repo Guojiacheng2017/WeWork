@@ -1,0 +1,52 @@
+{
+  "name": "wework",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "app-runtime",
+    "desktop"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev-wework.mjs",
+    "dev:web": "vite",
+    "dev:desktop": "npm run build && npm --workspace wework-desktop run dev",
+    "build:web": "tsc && vite build",
+    "build": "npm run build:web && npm --workspace wework-desktop run bundle:runtime",
+    "package": "npm run build:web && npm --workspace wework-desktop run package:dir",
+    "package:win": "npm run build:web && npm --workspace wework-desktop run package:win",
+    "preview": "vite preview",
+    "test:web": "vitest run",
+    "test:runtime": "npm --workspace wework-app-runtime test",
+    "test:desktop": "npm --workspace wework-desktop test",
+    "test": "npm run test:web && npm run test:runtime && npm run test:desktop && npm run server:test",
+    "server:dev": "server/.venv/bin/uvicorn app.main:app --reload --app-dir server",
+    "server:test": "cd server && .venv/bin/python -m pytest tests"
+  },
+  "dependencies": {
+    "@react-three/fiber": "^9.7.0",
+    "@types/three": "^0.182.0",
+    "lucide-react": "^1.16.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "three": "^0.182.0",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.9",
+    "@types/node": "^22.13.5",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@vitejs/plugin-react": "^4.3.4",
+    "tailwindcss": "^4.0.9",
+    "typescript": "^5.7.3",
+    "vite": "^6.2.0",
+    "vitest": "^3.2.4"
+  },
+  "allowScripts": {
+    "electron@37.10.3": true,
+    "esbuild@0.25.12": true
+  }
+}

@@ -1,0 +1,73 @@
+name: wework-v2-backend
+
+services:
+  api:
+    build: .
+    environment:
+      DATABASE_URL: "postgresql+psycopg://wework_v2:${WEWORK_V2_DB_PASSWORD:-wework-v2-local}@db:5432/wework_v2"
+      CORS_ORIGINS: "http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:4174"
+      S3_ENDPOINT_URL: "http://object-store:9000"
+      S3_BUCKET: "wework-v2-artifacts"
+      S3_ACCESS_KEY: "${WEWORK_V2_MINIO_USER:-wework-v2-minio}"
+      S3_SECRET_KEY: "${WEWORK_V2_MINIO_PASSWORD:-wework-v2-minio-secret}"
+      WEWORK_INTERNAL_TOKEN: "${WEWORK_V2_INTERNAL_TOKEN:-wework-v2-internal-local}"
+    ports:
+      - "8791:8790"
+    networks: [wework-v2-private]
+    depends_on:
+      db:
+        condition: service_healthy
+      object-store-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: wework_v2
+      POSTGRES_USER: wework_v2
+      POSTGRES_PASSWORD: "${WEWORK_V2_DB_PASSWORD:-wework-v2-local}"
+    volumes:
+      - wework-v2-postgres:/var/lib/postgresql/data
+    networks: [wework-v2-private]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wework_v2 -d wework_v2"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  object-store:
+    image: minio/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: "${WEWORK_V2_MINIO_USER:-wework-v2-minio}"
+      MINIO_ROOT_PASSWORD: "${WEWORK_V2_MINIO_PASSWORD:-wework-v2-minio-secret}"
+    volumes:
+      - wework-v2-artifacts:/data
+    networks: [wework-v2-private]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  object-store-init:
+    image: minio/mc:latest
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - "mc alias set wework-v2 http://object-store:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD && mc mb --ignore-existing wework-v2/wework-v2-artifacts"
+    environment:
+      MINIO_ROOT_USER: "${WEWORK_V2_MINIO_USER:-wework-v2-minio}"
+      MINIO_ROOT_PASSWORD: "${WEWORK_V2_MINIO_PASSWORD:-wework-v2-minio-secret}"
+    networks: [wework-v2-private]
+    depends_on:
+      object-store:
+        condition: service_healthy
+
+networks:
+  wework-v2-private:
+    internal: true
+
+volumes:
+  wework-v2-postgres:
+  wework-v2-artifacts:

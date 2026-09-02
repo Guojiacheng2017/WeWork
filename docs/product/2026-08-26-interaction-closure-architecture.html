@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WeWork V2 Interaction Closure Architecture</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" integrity="sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" integrity="sha384-en/ztfPSRkGfME4KIm05joYXynqzUgbsG5nMrj/xEFAHXkeZfO3yMK8QQ+mP7p1/" crossorigin="anonymous"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; padding: 28px; color: #e2e8f0; background: #020617; font-family: "JetBrains Mono", monospace; }
+    .container { max-width: 1320px; margin: 0 auto; }
+    .header-row { display: flex; align-items: center; gap: 12px; }
+    .pulse { width: 10px; height: 10px; border-radius: 50%; background: #22d3ee; box-shadow: 0 0 18px #22d3ee; }
+    h1 { margin: 0; font-size: 22px; letter-spacing: 0; }
+    .subtitle { margin: 8px 0 22px 22px; color: #94a3b8; font-size: 12px; }
+    .diagram { overflow-x: auto; padding: 18px; border: 1px solid #1e293b; border-radius: 14px; background: rgba(15,23,42,.55); }
+    svg { display: block; width: 100%; min-width: 1120px; }
+    .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 16px; }
+    .card { min-height: 126px; padding: 16px; border: 1px solid #1e293b; border-radius: 10px; background: rgba(15,23,42,.65); }
+    .card h3 { margin: 0 0 10px; font-size: 12px; }
+    .card p { margin: 5px 0; color: #94a3b8; font-size: 10px; line-height: 1.55; }
+    .dot { display: inline-block; width: 7px; height: 7px; margin-right: 7px; border-radius: 50%; }
+    .solid { background: #34d399; } .demo { background: #fbbf24; } .missing { background: #fb7185; }
+    .toolbar { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+    .toolbar-actions { display: none; gap: 6px; }
+    .toolbar.expanded .toolbar-actions { display: flex; }
+    .toolbar button { border: 1px solid #334155; border-radius: 6px; padding: 6px 10px; color: #94a3b8; background: #0f172a; font: inherit; font-size: 10px; cursor: pointer; }
+    .toolbar-toggle { font-size: 16px !important; }
+    .footer { margin-top: 14px; color: #475569; text-align: center; font-size: 10px; }
+    @media (max-width: 900px) { .cards { grid-template-columns: 1fr 1fr; } }
+    @media print { body { padding: 12px; } .toolbar { display: none !important; } }
+  </style>
+</head>
+<body>
+<div class="container" id="report-container">
+  <div class="header-row">
+    <span class="pulse"></span>
+    <h1>WeWork V2 / 交互闭环架构</h1>
+    <div class="toolbar">
+      <div class="toolbar-actions">
+        <button onclick="copyAsImage(this)">Copy PNG</button>
+        <button onclick="downloadPNG(this)">Download PNG</button>
+        <button onclick="downloadPDF(this)">Download PDF</button>
+      </div>
+      <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" aria-label="Export options">...</button>
+    </div>
+  </div>
+  <p class="subtitle">实线 = 当前存在的调用链；黄色 = 仅前端内存演示；玫红虚线 = 产品闭环缺失。</p>
+
+  <div class="diagram">
+    <svg viewBox="0 0 1240 790" role="img" aria-label="WeWork interaction architecture and missing closure paths">
+      <defs>
+        <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse"><path d="M32 0H0V32" fill="none" stroke="#1e293b" stroke-width=".5"/></pattern>
+        <marker id="arrow" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto"><path d="M0 0L9 3.5L0 7Z" fill="#64748b"/></marker>
+        <marker id="arrow-missing" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto"><path d="M0 0L9 3.5L0 7Z" fill="#fb7185"/></marker>
+      </defs>
+      <rect width="1240" height="790" fill="url(#grid)"/>
+
+      <text x="28" y="34" fill="#64748b" font-size="10" font-weight="700">INTERACTION SURFACES</text>
+      <text x="28" y="278" fill="#64748b" font-size="10" font-weight="700">CLIENT STATE + DOMAIN</text>
+      <text x="28" y="526" fill="#fb7185" font-size="10" font-weight="700">MISSING PRODUCT SERVICES / DASHED</text>
+
+      <!-- Existing arrows first -->
+      <g fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)">
+        <path d="M145 150V310H350"/><path d="M375 150V310"/><path d="M635 150V310"/><path d="M885 150V310H750"/><path d="M1110 150V310H750"/>
+        <path d="M550 372V438H345"/><path d="M550 372V438"/><path d="M550 372V438H970"/>
+      </g>
+      <g fill="none" stroke="#fbbf24" stroke-width="2" marker-end="url(#arrow)">
+        <path d="M350 350H460"/><path d="M640 350H750"/>
+      </g>
+
+      <!-- Missing dashed arrows -->
+      <g fill="none" stroke="#fb7185" stroke-width="1.7" stroke-dasharray="7 6" marker-end="url(#arrow-missing)">
+        <path d="M250 498V590H145"/><path d="M505 498V590H380"/><path d="M755 498V590H620"/><path d="M1000 498V590H865"/>
+        <path d="M550 372V548H1095V590"/>
+      </g>
+
+      <!-- UI layer -->
+      <g>
+        <rect x="35" y="60" width="220" height="90" rx="8" fill="#0f172a"/><rect x="35" y="60" width="220" height="90" rx="8" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="145" y="88" fill="#fff" font-size="13" font-weight="700" text-anchor="middle">团队侧栏</text><text x="145" y="110" fill="#94a3b8" font-size="9" text-anchor="middle">切换团队 / 新建团队</text><text x="145" y="130" fill="#fbbf24" font-size="8" text-anchor="middle">创建仅写入内存</text>
+
+        <rect x="275" y="60" width="200" height="90" rx="8" fill="#0f172a"/><rect x="275" y="60" width="200" height="90" rx="8" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="375" y="88" fill="#fff" font-size="13" font-weight="700" text-anchor="middle">圆桌视角</text><text x="375" y="110" fill="#94a3b8" font-size="9" text-anchor="middle">选中 / 环绕 / 平视 / 派发</text><text x="375" y="130" fill="#fb7185" font-size="8" text-anchor="middle">+ 座位聚焦规则未闭环</text>
+
+        <rect x="495" y="60" width="280" height="90" rx="8" fill="#0f172a"/><rect x="495" y="60" width="280" height="90" rx="8" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="635" y="88" fill="#fff" font-size="13" font-weight="700" text-anchor="middle">流程 DAG</text><text x="635" y="110" fill="#94a3b8" font-size="9" text-anchor="middle">查看节点 / 打开助手 / 接收任务</text><text x="635" y="130" fill="#fb7185" font-size="8" text-anchor="middle">编辑、布局、依赖、版本、权限缺失</text>
+
+        <rect x="795" y="60" width="180" height="90" rx="8" fill="#0f172a"/><rect x="795" y="60" width="180" height="90" rx="8" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="885" y="88" fill="#fff" font-size="13" font-weight="700" text-anchor="middle">团队管理</text><text x="885" y="110" fill="#94a3b8" font-size="9" text-anchor="middle">成员卡 / 添加助手</text><text x="885" y="130" fill="#fb7185" font-size="8" text-anchor="middle">编辑、移除、权限缺失</text>
+
+        <rect x="995" y="60" width="210" height="90" rx="8" fill="#0f172a"/><rect x="995" y="60" width="210" height="90" rx="8" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="1100" y="88" fill="#fff" font-size="13" font-weight="700" text-anchor="middle">助手工作台</text><text x="1100" y="110" fill="#94a3b8" font-size="9" text-anchor="middle">会话 / Context / Skill / Artifact</text><text x="1100" y="130" fill="#fb7185" font-size="8" text-anchor="middle">Artifact 查阅无动作</text>
+
+        <rect x="360" y="185" width="520" height="62" rx="8" fill="#0f172a"/><rect x="360" y="185" width="520" height="62" rx="8" fill="rgba(251,146,60,.18)" stroke="#fb923c" stroke-width="1.5"/>
+        <text x="620" y="211" fill="#fff" font-size="12" font-weight="700" text-anchor="middle">团队级待办抽屉</text><text x="620" y="231" fill="#fdba74" font-size="9" text-anchor="middle">圆桌 / DAG / 团队管理共同使用 · 拖拽派发</text>
+      </g>
+
+      <!-- Store and domain -->
+      <rect x="300" y="310" width="500" height="62" rx="8" fill="#0f172a"/><rect x="300" y="310" width="500" height="62" rx="8" fill="rgba(6,78,59,.4)" stroke="#34d399" stroke-width="1.5"/>
+      <text x="550" y="336" fill="#fff" font-size="13" font-weight="700" text-anchor="middle">Zustand / weworkStore</text><text x="550" y="356" fill="#94a3b8" font-size="9" text-anchor="middle">选择、弹窗、创建、派发、工作台状态</text>
+
+      <g>
+        <rect x="80" y="438" width="270" height="60" rx="8" fill="#0f172a"/><rect x="80" y="438" width="270" height="60" rx="8" fill="rgba(76,29,149,.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="215" y="464" fill="#fff" font-size="12" font-weight="700" text-anchor="middle">Team + Employee + Session</text><text x="215" y="484" fill="#94a3b8" font-size="9" text-anchor="middle">成员、角色、Runtime 标签、上下文</text>
+        <rect x="420" y="438" width="270" height="60" rx="8" fill="#0f172a"/><rect x="420" y="438" width="270" height="60" rx="8" fill="rgba(76,29,149,.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="555" y="464" fill="#fff" font-size="12" font-weight="700" text-anchor="middle">Pending Work + Current Work</text><text x="555" y="484" fill="#94a3b8" font-size="9" text-anchor="middle">派发时从 pending 移除并覆盖当前任务</text>
+        <rect x="760" y="438" width="400" height="60" rx="8" fill="#0f172a"/><rect x="760" y="438" width="400" height="60" rx="8" fill="rgba(76,29,149,.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="960" y="464" fill="#fff" font-size="12" font-weight="700" text-anchor="middle">Workflow Template + Artifact Metadata</text><text x="960" y="484" fill="#94a3b8" font-size="9" text-anchor="middle">静态节点、状态与文件名；没有生命周期服务</text>
+      </g>
+
+      <!-- Missing services -->
+      <g>
+        <rect x="35" y="590" width="220" height="86" rx="8" fill="#0f172a"/><rect x="35" y="590" width="220" height="86" rx="8" fill="rgba(136,19,55,.28)" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="7 5"/>
+        <text x="145" y="618" fill="#fff" font-size="12" font-weight="700" text-anchor="middle">Persistence + API</text><text x="145" y="640" fill="#94a3b8" font-size="8" text-anchor="middle">团队 / 成员 / 任务 / 会话</text><text x="145" y="658" fill="#fb7185" font-size="8" text-anchor="middle">刷新即丢失</text>
+        <rect x="275" y="590" width="220" height="86" rx="8" fill="#0f172a"/><rect x="275" y="590" width="220" height="86" rx="8" fill="rgba(136,19,55,.28)" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="7 5"/>
+        <text x="385" y="618" fill="#fff" font-size="12" font-weight="700" text-anchor="middle">Runtime Adapters</text><text x="385" y="640" fill="#94a3b8" font-size="8" text-anchor="middle">Pi / Claude Code / DSH / Workspace</text><text x="385" y="658" fill="#fb7185" font-size="8" text-anchor="middle">验证、启动、状态、故障</text>
+        <rect x="515" y="590" width="220" height="86" rx="8" fill="#0f172a"/><rect x="515" y="590" width="220" height="86" rx="8" fill="rgba(136,19,55,.28)" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="7 5"/>
+        <text x="625" y="618" fill="#fff" font-size="12" font-weight="700" text-anchor="middle">Work Lifecycle</text><text x="625" y="640" fill="#94a3b8" font-size="8" text-anchor="middle">worklist / history / handoff / retry</text><text x="625" y="658" fill="#fb7185" font-size="8" text-anchor="middle">负责人和完成闭环</text>
+        <rect x="755" y="590" width="220" height="86" rx="8" fill="#0f172a"/><rect x="755" y="590" width="220" height="86" rx="8" fill="rgba(136,19,55,.28)" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="7 5"/>
+        <text x="865" y="618" fill="#fff" font-size="12" font-weight="700" text-anchor="middle">Workflow Governance</text><text x="865" y="640" fill="#94a3b8" font-size="8" text-anchor="middle">layout / validation / version / permission</text><text x="865" y="658" fill="#fb7185" font-size="8" text-anchor="middle">动态协作收敛为流程</text>
+        <rect x="995" y="590" width="210" height="86" rx="8" fill="#0f172a"/><rect x="995" y="590" width="210" height="86" rx="8" fill="rgba(136,19,55,.28)" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="7 5"/>
+        <text x="1100" y="618" fill="#fff" font-size="12" font-weight="700" text-anchor="middle">Artifact Service</text><text x="1100" y="640" fill="#94a3b8" font-size="8" text-anchor="middle">storage / preview / download / lineage</text><text x="1100" y="658" fill="#fb7185" font-size="8" text-anchor="middle">查阅按钮当前无响应</text>
+      </g>
+
+      <g font-size="9">
+        <line x1="420" y1="730" x2="470" y2="730" stroke="#64748b" stroke-width="2"/><text x="480" y="734" fill="#94a3b8">当前调用链</text>
+        <line x1="590" y1="730" x2="640" y2="730" stroke="#fbbf24" stroke-width="2"/><text x="650" y="734" fill="#fbbf24">仅内存演示</text>
+        <line x1="770" y1="730" x2="820" y2="730" stroke="#fb7185" stroke-width="2" stroke-dasharray="7 5"/><text x="830" y="734" fill="#fb7185">缺失闭环</text>
+      </g>
+    </svg>
+  </div>
+
+  <div class="cards">
+    <div class="card"><h3><span class="dot solid"></span>已形成闭环的 UI</h3><p>团队切换、三视图切换、待办展开收起、圆桌换位、成员聚焦、空白返回、工作台开关。</p></div>
+    <div class="card"><h3><span class="dot demo"></span>仅演示层可用</h3><p>团队创建、助手添加、任务派发会改变当前页面，但没有后端、持久化或 Runtime 结果。</p></div>
+    <div class="card"><h3><span class="dot missing"></span>优先补齐</h3><p>任务生命周期、Artifact 查阅、Runtime adapter、DAG 编辑/校验/版本，以及成员管理动作。</p></div>
+    <div class="card"><h3><span class="dot missing"></span>已确认冲突</h3><p>新增座位未遵循 Employee 的选中/聚焦路径；新建团队可能继承旧视图；DAG 节点缺少键盘语义。</p></div>
+  </div>
+  <div class="footer">WeWork V2 · interaction audit · 2026-08-26</div>
+</div>
+<script>
+  const capture = async () => {
+    const root = document.getElementById('report-container');
+    const rect = root.getBoundingClientRect();
+    return html2canvas(document.body, { scale: 2, backgroundColor: '#020617', x: Math.max(0, rect.left - 32), y: Math.max(0, rect.top - 32), width: rect.width + 64, height: rect.height + 64, ignoreElements: el => el.classList && el.classList.contains('toolbar') });
+  };
+  async function copyAsImage() { const canvas = await capture(); canvas.toBlob(async blob => blob && navigator.clipboard.write([new ClipboardItem({'image/png': blob})])); }
+  async function downloadPNG() { const canvas = await capture(); const a = document.createElement('a'); a.download = 'wework-interaction-architecture.png'; a.href = canvas.toDataURL('image/png'); a.click(); }
+  async function downloadPDF() { const canvas = await capture(); const { jsPDF } = window.jspdf; const pdf = new jsPDF({ orientation: 'landscape', unit: 'px', format: [canvas.width, canvas.height] }); pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, canvas.width, canvas.height); pdf.save('wework-interaction-architecture.pdf'); }
+</script>
+</body>
+</html>

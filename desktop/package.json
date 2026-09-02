@@ -1,0 +1,49 @@
+{
+  "name": "wework-desktop",
+  "description": "Secure desktop host for WeWork",
+  "author": "WeWork",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/main.mjs",
+  "scripts": {
+    "dev": "electron src/main.mjs",
+    "test": "node --test",
+    "bundle:runtime": "node src/build-runtime.mjs",
+    "package:dir": "npm run bundle:runtime && electron-builder --dir",
+    "package:mac": "npm run bundle:runtime && electron-builder --mac",
+    "package:win": "npm run bundle:runtime && electron-builder --win zip --x64"
+  },
+  "devDependencies": {
+    "electron": "37.10.3",
+    "electron-builder": "^26.0.12",
+    "esbuild": "^0.25.9",
+    "gpt-tokenizer": "3.4.0"
+  },
+  "build": {
+    "appId": "app.wework.desktop",
+    "productName": "WeWork",
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../app-runtime/skills",
+        "to": "wework-app-runtime/skills"
+      },
+      {
+        "from": "runtime-dist",
+        "to": "wework-app-runtime"
+      },
+      {
+        "from": "../dist",
+        "to": "wework-ui"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "identity": null
+    }
+  }
+}
