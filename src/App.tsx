@@ -12,6 +12,7 @@ import { CreateTeamModal } from './components/modals/CreateTeamModal';
 import { AddEmployeeModal } from './components/modals/AddEmployeeModal';
 import { PortalPageView } from './components/portal/PortalPageView';
 import type { PortalPage } from './domain/portalNavigation';
+import { RuntimeMonitor } from './components/debug/RuntimeMonitor';
 
 const ProjectManagementView = lazy(() => import('./components/project/ProjectManagementView'));
 
@@ -24,6 +25,7 @@ export const App: React.FC = () => {
   const [roundPendingVisible, setRoundPendingVisible] = useState(true);
   const [portalPage, setPortalPage] = useState<PortalPage | null>(null);
   const [roundResize, setRoundResize] = useState<{ startX: number; startWidth: number } | null>(null);
+  const [monitorOpen, setMonitorOpen] = useState(false);
   const {
     teams,
     selectedTeamId,
@@ -86,7 +88,7 @@ export const App: React.FC = () => {
       
     <div className="flex h-screen w-screen overflow-hidden bg-slate-50 font-sans select-none">
       {/* 1. Left Sidebar Navigation */}
-      <TeamSidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((value) => !value)} activePortalPage={portalPage} onPortalNavigate={setPortalPage} />
+      <TeamSidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((value) => !value)} activePortalPage={portalPage} onPortalNavigate={setPortalPage} onOpenMonitor={() => setMonitorOpen(true)} />
 
       {/* 2. Main Work & Stage Center */}
       <main className="flex-1 flex flex-col h-full min-w-0 relative">
@@ -148,6 +150,7 @@ export const App: React.FC = () => {
       <AddEmployeeModal />
       {isRuntimeProfileOpen && <ExecutionSettingsDialog initialSection={settingsSection} onClose={() => setRuntimeProfileOpen(false)} />}
     </div>
+    {monitorOpen && <RuntimeMonitor onClose={() => setMonitorOpen(false)} />}
     </>
   );
 };

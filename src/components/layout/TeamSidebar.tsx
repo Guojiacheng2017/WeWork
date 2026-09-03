@@ -1,12 +1,12 @@
 import React from 'react';
 import { useWeWorkStore } from '../../state/weworkStore';
-import { ArchiveRestore, BarChart3, BriefcaseBusiness, ChevronRight, Cpu, PanelLeftClose, PanelLeftOpen, Plus, Settings2, Trash2, UserRound, Users } from 'lucide-react';
+import { Activity, ArchiveRestore, BarChart3, BriefcaseBusiness, ChevronRight, Cpu, PanelLeftClose, PanelLeftOpen, Plus, Settings2, Trash2, UserRound, Users } from 'lucide-react';
 import { WeWorkLogoMark } from '../employee/EmployeeBotIntro';
 import { performancePages, servicePages, type PortalPage } from '../../domain/portalNavigation';
 
-type TeamSidebarProps = { collapsed: boolean; onToggle: () => void; activePortalPage: PortalPage | null; onPortalNavigate: (page: PortalPage | null) => void };
+type TeamSidebarProps = { collapsed: boolean; onToggle: () => void; activePortalPage: PortalPage | null; onPortalNavigate: (page: PortalPage | null) => void; onOpenMonitor: () => void };
 
-export const TeamSidebar: React.FC<TeamSidebarProps> = ({ collapsed, onToggle, activePortalPage, onPortalNavigate }) => {
+export const TeamSidebar: React.FC<TeamSidebarProps> = ({ collapsed, onToggle, activePortalPage, onPortalNavigate, onOpenMonitor }) => {
   const { teams, archivedTeams, selectedTeamId, selectTeam, setCreateTeamOpen, setRuntimeProfileOpen, setTopology, restoreTeam, deleteTeam } = useWeWorkStore();
 
   return (
@@ -106,6 +106,7 @@ export const TeamSidebar: React.FC<TeamSidebarProps> = ({ collapsed, onToggle, a
           <button type="button" onClick={(event) => { setRuntimeProfileOpen(true, undefined, 'general'); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"><Settings2 className="h-4 w-4 text-slate-400" /><span className="flex-1">设置</span><ChevronRight className="h-3.5 w-3.5 text-slate-300" /></button>
           <button type="button" onClick={(event) => { setRuntimeProfileOpen(true, undefined, 'execution'); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"><Cpu className="h-4 w-4 text-slate-400" /><span className="flex-1">执行器与模型</span><ChevronRight className="h-3.5 w-3.5 text-slate-300" /></button>
           <button type="button" onClick={(event) => { setTopology('teamManagement'); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"><Users className="h-4 w-4 text-slate-400" /><span className="flex-1">团队与助手</span><ChevronRight className="h-3.5 w-3.5 text-slate-300" /></button>
+          {window.weworkHost && <button type="button" onClick={(event) => { onOpenMonitor(); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"><Activity className="h-4 w-4 text-slate-400" /><span className="flex-1">运行监控台</span><ChevronRight className="h-3.5 w-3.5 text-slate-300" /></button>}
           <div className="mx-2 my-1 h-px bg-slate-100" />
           <div className="flex items-center gap-2 px-2.5 py-2 text-[10px] text-slate-400"><span className="h-2 w-2 rounded-full bg-emerald-500" />本地模式</div>
         </div>

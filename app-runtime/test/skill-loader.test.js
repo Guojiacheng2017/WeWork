@@ -15,7 +15,7 @@ test('discovers real workspace and bundled Skill packages with stable IDs',async
   const skills=await discoverAvailableSkills({workspaceRoot:workspace,bundledRoot:bundled});
   assert.deepEqual(skills.map(({id,name,source})=>({id,name,source})),[
     {id:'quality-review',name:'Quality Review',source:'workspace'},
-    {id:'task-routing',name:'Task Routing',source:'wework'},
+    {id:'task-routing',name:'Task Routing',source:'harness'},
   ]);
 });
 

@@ -240,6 +240,7 @@ export class WeWorkService {
   async #resolveWorkspace(team, employee, override, hasOverride = false) {
     const assignment = normalizeWorkspaceAssignment(hasOverride ? override : employee?.workspaceAssignment ?? team?.workspaceAssignment);
     await this.#validateCredentialAssignment(assignment);
+    if (assignment?.kind === 'local' && !assignment.rootPath && !this.workspaceLayout && this.currentWorkspace) return this.#resolveCurrentWorkspace();
     if (assignment && !(assignment.kind === 'local' && !assignment.rootPath)) return assignment;
     if (!this.workspaceLayout) return undefined;
     const paths = employee ? await this.workspaceLayout.ensureEmployee(team, employee) : await this.workspaceLayout.ensureTeam(team);

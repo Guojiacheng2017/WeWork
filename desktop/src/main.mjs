@@ -4,11 +4,13 @@ import { fileURLToPath } from "node:url";
 import { SidecarSupervisor } from "./sidecar-supervisor.js";
 import { weworkDataLayout } from './data-layout.mjs';
 import { singleFlight } from './single-flight.mjs';
+import { DiagnosticLog } from './diagnostic-log.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const packagedRuntime = join(process.resourcesPath, "wework-app-runtime", "host-main.cjs");
 const devRuntime = join(here, "..", "..", "desktop", "runtime-dist", "host-main.cjs");
 const dataLayout = weworkDataLayout(app.getPath('documents'));
+const diagnostics = new DiagnosticLog();
 const supervisor = new SidecarSupervisor({ command: process.execPath, args: [app.isPackaged ? packagedRuntime : devRuntime], env: { ELECTRON_RUN_AS_NODE: "1", WEWORK_APP_DATA_DIR: dataLayout.rootPath, WEWORK_CONFIG_DIR: dataLayout.configPath } });
 const chooseDirectory = singleFlight(async (owner) => {
   const result = await dialog.showOpenDialog(owner, {
@@ -18,8 +20,9 @@ const chooseDirectory = singleFlight(async (owner) => {
   });
   return result.canceled || !result.filePaths[0] ? null : { kind: "local", rootPath: result.filePaths[0] };
 });
-supervisor.on("restart-error", (error) => console.error("WeWork Host restart failed:", error.message));
-supervisor.on("stderr", (message) => console.error("WeWork Host:", message.trimEnd()));
+supervisor.on("ready", () => diagnostics.add('info', 'host', 'Runtime Host 已就绪'));
+supervisor.on("restart-error", (error) => { diagnostics.add('error', 'host', 'Runtime Host 重启失败', { code: error.code, error: error.message }); console.error("WeWork Host restart failed:", error.message); });
+supervisor.on("stderr", (message) => { diagnostics.add('error', 'runtime', message.trimEnd()); console.error("WeWork Host:", message.trimEnd()); });
 
 const routes = {
   weworkCall: ["POST", "/v1/wework/call", (p) => p],
@@ -38,6 +41,8 @@ const routes = {
 };
 
 ipcMain.handle("wework-host:invoke", async (_event, { method, payload }) => {
+  if (method === 'diagnostics') return diagnostics.snapshot({ host: supervisor.endpoint ? 'ready' : 'unavailable', pid: supervisor.child?.pid ?? null });
+  if (method === 'clearDiagnostics') { diagnostics.clear(); return diagnostics.snapshot({ host: supervisor.endpoint ? 'ready' : 'unavailable', pid: supervisor.child?.pid ?? null }); }
   if (method === "chooseLocalWorkspace") {
     return chooseDirectory(BrowserWindow.fromWebContents(_event.sender));
   }
@@ -45,10 +50,24 @@ ipcMain.handle("wework-host:invoke", async (_event, { method, payload }) => {
   if (!supervisor.endpoint) throw Object.assign(new Error("WeWork Host unavailable"), { code: "HOST_UNAVAILABLE" });
   const [httpMethod, pathValue, bodyFn, mapFn, headersFn] = route;
   const path = typeof pathValue === "function" ? pathValue(payload) : pathValue;
-  const response = await fetch(`${supervisor.endpoint.url}${path}`, { method: httpMethod, headers: { authorization: supervisor.authorization(), "content-type": "application/json", ...(headersFn?.(payload) ?? {}) }, body: bodyFn ? JSON.stringify(bodyFn(payload)) : undefined });
-  const value = await response.json();
-  if (!response.ok) throw Object.assign(new Error(value.error?.message ?? "WeWork Host request failed"), { code: value.error?.code ?? "HOST_INTERNAL", status: response.status });
-  return mapFn ? mapFn(value) : value;
+  const started = Date.now();
+  diagnostics.add('info', 'bridge', `${method} 开始`);
+  try {
+    const response = await fetch(`${supervisor.endpoint.url}${path}`, { method: httpMethod, headers: { authorization: supervisor.authorization(), "content-type": "application/json", ...(headersFn?.(payload) ?? {}) }, body: bodyFn ? JSON.stringify(bodyFn(payload)) : undefined });
+    const value = await response.json();
+    if (!response.ok) throw Object.assign(new Error(value.error?.message ?? "WeWork Host request failed"), { code: value.error?.code ?? "HOST_INTERNAL", status: response.status });
+    if (method === 'events') for (const event of value.events ?? []) {
+      if (event.type === 'run.started') diagnostics.add('info', 'session', `Run ${event.runId} 已启动`);
+      else if (event.type === 'run.succeeded') diagnostics.add('info', 'session', `Run ${event.runId} 已完成`);
+      else if (event.type === 'run.failed' || event.type === 'run.cancelled') diagnostics.add('error', 'session', `Run ${event.runId} ${event.type === 'run.failed' ? '失败' : '已取消'}`, { error: event.error });
+      else if (event.type === 'assistant.activity') diagnostics.add('info', 'harness', event.text, { activity: event.activity, runId: event.runId });
+    }
+    diagnostics.add('info', 'bridge', `${method} 完成`, { durationMs: Date.now() - started });
+    return mapFn ? mapFn(value) : value;
+  } catch (error) {
+    diagnostics.add('error', 'bridge', `${method} 失败`, { durationMs: Date.now() - started, code: error.code, error: error.message });
+    throw error;
+  }
 });
 
 app.whenReady().then(async () => {

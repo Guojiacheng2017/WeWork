@@ -29,10 +29,6 @@
     ],
     "extraResources": [
       {
-        "from": "../app-runtime/skills",
-        "to": "wework-app-runtime/skills"
-      },
-      {
         "from": "runtime-dist",
         "to": "wework-app-runtime"
       },

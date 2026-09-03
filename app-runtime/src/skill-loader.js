@@ -10,7 +10,7 @@ const metadata=(id,content)=>{
 };
 
 const approvedSkillRoots=({skillRoots=[],workspaceRoot,bundledRoot})=>{
-  const roots=[...skillRoots.map(root=>[root,'workspace']),workspaceRoot&&[join(workspaceRoot,'skills'),'workspace'],bundledRoot&&[bundledRoot,'wework']].filter(Boolean);
+  const roots=[...skillRoots.map(root=>[root,'workspace']),workspaceRoot&&[join(workspaceRoot,'skills'),'workspace'],bundledRoot&&[bundledRoot,'harness']].filter(Boolean);
   return roots.filter(([root],index)=>roots.findIndex(([candidate])=>candidate===root)===index);
 };
 

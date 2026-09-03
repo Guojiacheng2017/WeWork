@@ -25,7 +25,9 @@ export type HarnessModel = {
 };
 export type HarnessModelInput = Omit<HarnessModel, 'id' | 'isDefault' | 'createdAt' | 'updatedAt'> & { id?: string };
 export type HarnessModelCatalogResult = { models: HarnessModel[]; defaults: Partial<Record<HarnessId, string>> };
-export type AvailableSkill = { id: string; name: string; description: string; source: 'wework' | 'workspace' };
+export type AvailableSkill = { id: string; name: string; description: string; source: 'harness' | 'workspace' };
+export type DiagnosticEntry = { id: number; time: string; level: 'info' | 'error'; source: string; message: string; details?: Record<string, unknown> };
+export type DiagnosticSnapshot = { status: { host: 'ready' | 'unavailable'; pid: number | null }; entries: DiagnosticEntry[] };
 export type SkillCatalogResult = { skills: AvailableSkill[]; reason?: string };
 export type SkillDiscoveryRequest = WorkspaceAssignment | {
   teamId?: string; employeeId?: string;
@@ -35,9 +37,7 @@ export type SkillDiscoveryRequest = WorkspaceAssignment | {
   workspaceAssignment?: WorkspaceAssignment;
 };
 const webDemoSkills: AvailableSkill[] = [
-  { id: 'task-dispatch', name: '任务分解与调度', description: '将目标拆分为可交付任务，明确依赖、负责人和验收条件。', source: 'wework' },
-  { id: 'quality-review', name: '质量审查', description: '按要求、证据和风险检查交付物，并输出可执行的问题清单。', source: 'wework' },
-  { id: 'handoff-summary', name: '协作交接', description: '将进度、决策、未决事项和下一步整理为低歧义交接信息。', source: 'wework' },
+  { id: 'task-dispatch', name: '任务分解与调度', description: 'Web 预览示例；桌面版会读取当前 Harness 的真实 Skill。', source: 'harness' },
 ];
 
 export interface CredentialVault {
@@ -199,6 +199,8 @@ export class LoopbackWeWorkHost {
   cancelRun(runId: string) { return this.request<{ accepted: boolean }>(`/v1/runs/${encodeURIComponent(runId)}/cancel`, { method: 'POST' }); }
   run(runId: string) { return this.request<{ id: string; status: string; finalText?: string; error?: string }>(`/v1/runs/${encodeURIComponent(runId)}`); }
   events(after = 0) { return this.request<{ events: Array<RuntimeEvent & { id: number }>; cursor: number }>('/v1/events', { headers: { 'last-event-id': String(after) } }); }
+  diagnostics(): Promise<DiagnosticSnapshot> { return Promise.reject(new WeWorkHostError('HOST_UNAVAILABLE', '监控台只在 Desktop App 可用')); }
+  clearDiagnostics(): Promise<DiagnosticSnapshot> { return Promise.reject(new WeWorkHostError('HOST_UNAVAILABLE', '监控台只在 Desktop App 可用')); }
 }
 
 export class LoopbackRuntimeEvents {
