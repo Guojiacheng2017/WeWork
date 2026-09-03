@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld("weworkHost", {
   harnessPolicy: () => invoke("harnessPolicy"),
   setHarnessPolicy: (allowedHarnesses) => invoke("setHarnessPolicy", { allowedHarnesses }),
   harnessModels: () => invoke('harnessModels'),
+  sdhConnection: () => invoke('sdhConnection'),
+  setSdhConnection: (baseUrl) => invoke('setSdhConnection', { baseUrl }),
   saveHarnessModel: (input) => invoke('saveHarnessModel', input),
   probeHarnessModel: (input) => invoke('probeHarnessModel', input),
   setDefaultHarnessModel: (harness, modelId) => invoke('setDefaultHarnessModel', { harness, modelId }),

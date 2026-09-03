@@ -2,7 +2,6 @@ import { WeWorkService } from './host/wework-service.js';
 import { TeamPartitionedWeWorkStorage, safeTeamDirectory } from './host/team-partitioned-wework-storage.js';
 import { createWeWorkTools } from './wework-tools.js';
 import { CollaborationCoordinator } from './host/collaboration-coordinator.js';
-import { access } from 'node:fs/promises';
 import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { join, dirname, resolve } from "node:path";
@@ -15,9 +14,8 @@ import { createHostServer, EventJournal } from "./host/server.js";
 import { createSshWorkspaceProbe, OpenSshService } from "./host/ssh.js";
 import { HarnessDetector } from "./host/harness-detector.js";
 import { HarnessPolicyStore } from "./host/harness-policy.js";
-import { HarnessModelCatalog } from './host/harness-model-catalog.js';
 import { executeHarness } from "./harness-dispatch.js";
-import { invokeSmalldashControl } from './smalldash-runtime.js';
+import { RemoteSdhClient, SdhConnectionStore } from './host/sdh-connection.js';
 import { discoverAvailableSkills } from './skill-loader.js';
 import { WeWorkWorkspaceLayout } from './host/wework-workspace-layout.js';
 import { resolveWeWorkConfiguration } from './host/wework-configuration.js';
@@ -31,18 +29,17 @@ const port = Number(process.env.WEWORK_HOST_PORT ?? 0);
 const directory = new MacDirectoryService({ configPath: join(configRoot, 'current-workspace.json') });
 const vault = new MacKeychainVault({ metadataPath: join(configRoot, "credentials.json") });
 const ssh = new OpenSshService();
-const runnerPath = process.env.WEWORK_SDH_RUNNER_PATH ?? (process.argv[1].endsWith('.cjs') ? join(dirname(process.argv[1]),'sdh-runner.mjs') : resolve(dirname(process.argv[1]),'../../../smalldashharness/harness/wework-runner.js'));
 const bundledSkillRoots = process.env.WEWORK_SKILLS_DIR
   ? [{ root: process.env.WEWORK_SKILLS_DIR, source: 'wework' }]
   : process.argv[1].endsWith('.cjs')
-    ? [{ root: join(dirname(process.argv[1]), 'skills', 'wework'), source: 'wework' }, { root: join(dirname(process.argv[1]), 'skills', 'sdh'), source: 'harness' }]
-    : [{ root: resolve(dirname(process.argv[1]), '../skills'), source: 'wework' }, { root: resolve(dirname(process.argv[1]), '../../../smalldashharness/harness/skills'), source: 'harness' }];
+    ? [{ root: join(dirname(process.argv[1]), 'skills', 'wework'), source: 'wework' }]
+    : [{ root: resolve(dirname(process.argv[1]), '../skills'), source: 'wework' }];
 const weworkSkillRoots = bundledSkillRoots.filter(({ source }) => source === 'wework');
-const harnessSkillsRoot = bundledSkillRoots.find(({ source }) => source === 'harness')?.root;
 const piExtensionPath = process.env.WEWORK_PI_EXTENSION_PATH ?? join(dirname(process.argv[1]), 'pi-wework-extension.mjs');
-const harnesses = new HarnessDetector({bundledSdh:async()=>{await access(runnerPath);return true;}});
+const harnesses = new HarnessDetector();
+const sdhConnection = new SdhConnectionStore(join(configRoot, 'smalldashharness.json'));
+const sdh = new RemoteSdhClient({ connection: sdhConnection });
 const harnessPolicy = new HarnessPolicyStore(join(configRoot, "harness-policy.json"));
-const legacyHarnessModels = new HarnessModelCatalog(join(configRoot, 'harness-models.json'));
 const journal = new EventJournal();
 const workspaceLayout = new WeWorkWorkspaceLayout({ weworkRoot, configRoot });
 const wework = new WeWorkService(new TeamPartitionedWeWorkStorage(weworkRoot, {
@@ -59,44 +56,43 @@ const runtime = new RuntimeManager({
   execute: withVaultCredential(vault, async (spec, options) => {
     const harnessId=spec.runtimeProfile.adapter==='smalldash'?'smalldashharness':spec.runtimeProfile.adapter;
     if(!(await harnessPolicy.get()).allowedHarnesses.includes(harnessId)) throw new Error('Harness is not allowed on this device');
-    return executeHarness(spec,{...options,dataRoot:runtimeDataRoot,legacyDataRoots:[weworkRoot,legacyDataRoot],migrationQuarantineRoot:join(configRoot,'migration-quarantine'),runnerPath,bundledSkillRoots:weworkSkillRoots,harnessSkillsRoot,extensionPath:piExtensionPath,tools:spec.wework?createWeWorkTools(wework,spec,options.signal):[]});
+    return executeHarness(spec,{...options,dataRoot:runtimeDataRoot,legacyDataRoots:[weworkRoot,legacyDataRoot],migrationQuarantineRoot:join(configRoot,'migration-quarantine'),sdh,bundledSkillRoots:weworkSkillRoots,extensionPath:piExtensionPath,tools:spec.wework?createWeWorkTools(wework,spec,options.signal):[]});
   }),
   onFinish: (spec, result, error) => spec.wework ? wework.finish(spec, result, error) : undefined,
 });
 wework.isEmployeeActive = (employeeId) => [...runtime.active.values()].some((run) => run.employeeId === employeeId);
 const coordinator = new CollaborationCoordinator({wework,runtime});
 wework.attachCoordinator(coordinator);
-const sdhControl = (message) => invokeSmalldashControl(message,{dataRoot:runtimeDataRoot,runnerPath});
-const mapSdhModel = (model) => ({...model,harness:'smalldashharness',api:'openai-completions',source:'wework-managed'});
+const mapSdhModel = ({baseUrl: _internalModelUrl, ...model}) => ({...model,harness:'smalldashharness',api:'openai-completions',source:'harness-discovered'});
 const listHarnessModels = async () => {
-  let result=await sdhControl({type:'models.list'});
-  if(!(result.models??[]).length) {
-    const legacy=await legacyHarnessModels.list();
-    for(const model of legacy.models) await sdhControl({type:'models.save',config:{id:model.id,name:model.name,provider:'openai-compatible',modelId:model.modelId,baseUrl:model.baseUrl,contextWindow:model.contextWindow,maxTokens:model.maxTokens,authentication:'none'}});
-    if(legacy.defaults.smalldashharness) await sdhControl({type:'models.setDefault',id:legacy.defaults.smalldashharness});
-    if(legacy.models.length) result=await sdhControl({type:'models.list'});
-  }
+  const result=await sdh.models();
   return {models:(result.models??[]).map(mapSdhModel),defaults:result.defaultId?{smalldashharness:result.defaultId}:{}};
 };
 const probeHarnessModel = async (input) => {
   if(input?.harness!=='smalldashharness') return {ok:false,error:'当前版本仅适配 smalldashharness'};
-  const result=await sdhControl({type:'models.probe',config:{baseUrl:input.baseUrl,modelId:input.modelId}});
+  const result=await sdh.probeModel({baseUrl:input.baseUrl,modelId:input.modelId});
   return {ok:Boolean(result.reachable&&result.chatCompletionsSupported),modelIds:result.discoveredModels,error:result.error?.message};
 };
 const saveHarnessModel = async (input) => {
   if(input?.harness!=='smalldashharness') throw Object.assign(new Error('当前版本仅适配 smalldashharness'),{code:'MODEL_CONFIG_INVALID'});
-  const saved=await sdhControl({type:'models.save',config:{name:input.name,provider:'openai-compatible',modelId:input.modelId,baseUrl:input.baseUrl,contextWindow:input.contextWindow,maxTokens:input.maxTokens,authentication:'none'}});
-  const probed=await sdhControl({type:'models.probe',id:saved.model.id});
-  return mapSdhModel(probed.model??saved.model);
+  const saved=await sdh.saveModel({name:input.name,provider:'openai-compatible',modelId:input.modelId,baseUrl:input.baseUrl,contextWindow:input.contextWindow,maxTokens:input.maxTokens,authentication:'none'});
+  return mapSdhModel(saved.model??saved);
 };
 const services = {
   weworkCall: (method, args) => wework.call(method, args),
   dataInfo: () => ({ rootPath: weworkRoot, configPath: configRoot, teamsPath: weworkRoot, runtimePath: join(configRoot, 'runtime'), platform: process.platform }),
-  listHarnesses: () => harnesses.detect(),
+  listHarnesses: async () => {
+    const rows=await harnesses.detect(); const connection=await sdhConnection.get();
+    let reachable=false,version,reason=connection.configured?'远程服务不可达':'尚未配置远程服务地址';
+    if(connection.configured) try { const health=await sdh.health(); reachable=health.ok===true&&health.service==='smalldashharness'; version=health.version; reason=reachable?'已连接远程服务':'服务响应不兼容'; } catch(error) { reason=error.message; }
+    return rows.map(row=>row.harness==='smalldashharness'?{...row,kind:'local-service',available:connection.configured,executionReady:reachable,weworkToolsReady:false,version,reason,capabilities:{streaming:reachable,resumeSession:reachable,cancellation:reachable,workspace:false,tools:false},configuration:{source:'service'}}:row);
+  },
+  getSdhConnection: async () => { const value=await sdhConnection.get(); if(!value.configured)return value; try { const health=await sdh.health(); return {...value,reachable:health.ok===true,service:health.service}; } catch(error) { return {...value,reachable:false,error:error.message}; } },
+  setSdhConnection: async (input) => { const value=await sdhConnection.set(input); const health=await sdh.health(); if(health.service!=='smalldashharness')throw Object.assign(new Error('目标不是 smalldashharness 服务'),{code:'HARNESS_PROTOCOL_UNSUPPORTED'}); return {...value,reachable:true,service:health.service}; },
   getHarnessPolicy: () => harnessPolicy.get(), setHarnessPolicy: (input) => harnessPolicy.set(input.allowedHarnesses ?? []),
   listHarnessModels, saveHarnessModel, setDefaultHarnessModel: async (harness, modelId) => {
     if(harness!=='smalldashharness') throw Object.assign(new Error('当前版本仅适配 smalldashharness'),{code:'MODEL_CONFIG_INVALID'});
-    await sdhControl({type:'models.setDefault',id:modelId}); return listHarnessModels();
+    await sdh.setDefaultModel(modelId); return listHarnessModels();
   },
   probeHarnessModel,
   listSkills: async (request = {}) => {

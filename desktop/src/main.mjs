@@ -30,6 +30,7 @@ const routes = {
   harnesses: ["GET", "/v1/harnesses", null, (value) => value.installations],
   harnessPolicy: ["GET", "/v1/harnesses/policy"], setHarnessPolicy: ["POST", "/v1/harnesses/policy", (p) => p],
   harnessModels: ["GET", "/v1/harnesses/models"], saveHarnessModel: ["POST", "/v1/harnesses/models", (p) => p],
+  sdhConnection: ["GET", "/v1/harnesses/smalldash/connection"], setSdhConnection: ["POST", "/v1/harnesses/smalldash/connection", (p) => p],
   probeHarnessModel: ["POST", "/v1/harnesses/models/probe", (p) => p],
   setDefaultHarnessModel: ["POST", "/v1/harnesses/models/default", (p) => p],
   skills: ["POST", "/v1/skills/discover", (p) => p],

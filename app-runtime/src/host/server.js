@@ -20,6 +20,8 @@ export function createHostServer({ token, services, journal = new EventJournal()
       if (req.url === "/v1/health") return json(res, 200, { ok: true, service: "wework-app-runtime" });
       if (req.url === "/v1/data/info" && req.method === "GET") return json(res, 200, await services.dataInfo());
       if (req.url === "/v1/harnesses" && req.method === "GET") return json(res, 200, { installations: await services.listHarnesses() });
+      if (req.url === "/v1/harnesses/smalldash/connection" && req.method === "GET") return json(res, 200, await services.getSdhConnection());
+      if (req.url === "/v1/harnesses/smalldash/connection" && req.method === "POST") return json(res, 200, await services.setSdhConnection(await body(req)));
       if (req.url === "/v1/harnesses/policy" && req.method === "GET") return json(res, 200, await services.getHarnessPolicy());
       if (req.url === "/v1/harnesses/policy" && req.method === "POST") return json(res, 200, await services.setHarnessPolicy(await body(req)));
       if (req.url === "/v1/harnesses/models" && req.method === "GET") return json(res, 200, await services.listHarnessModels());

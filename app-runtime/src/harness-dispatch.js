@@ -1,10 +1,10 @@
-import { executeSmalldashRun } from './smalldash-runtime.js';
+import { executeRemoteSmalldashRun } from './smalldash-remote-runtime.js';
 import { executePiRun } from './pi-runtime.js';
 import { HostError } from './host/errors.js';
 
 export async function executeHarness(spec, options) {
-  if (spec.runtimeProfile?.adapter === 'smalldash') return executeSmalldashRun(spec, options);
+  if (spec.runtimeProfile?.adapter === 'smalldash') return executeRemoteSmalldashRun(spec, options);
   if (spec.runtimeProfile?.adapter === 'pi') return executePiRun(spec, options);
   // Installation detection alone does not authorize an unverified protocol.
-  throw new HostError('HARNESS_ADAPTER_UNAVAILABLE', 'This Harness has no verified WeWork execution adapter yet; use bundled smalldashharness.', 409);
+  throw new HostError('HARNESS_ADAPTER_UNAVAILABLE', 'This Harness has no verified WeWork execution adapter yet; configure remote smalldashharness.', 409);
 }

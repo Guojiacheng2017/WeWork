@@ -25,6 +25,7 @@ export type HarnessModel = {
 };
 export type HarnessModelInput = Omit<HarnessModel, 'id' | 'isDefault' | 'createdAt' | 'updatedAt'> & { id?: string };
 export type HarnessModelCatalogResult = { models: HarnessModel[]; defaults: Partial<Record<HarnessId, string>> };
+export type SdhConnection = { baseUrl: string; configured: boolean; reachable?: boolean; service?: string; error?: string };
 export type AvailableSkill = { id: string; name: string; description: string; source: 'wework' | 'workspace' };
 export type DiagnosticEntry = { id: number; time: string; level: 'info' | 'error'; source: string; message: string; details?: Record<string, unknown> };
 export type DiagnosticSnapshot = { status: { host: 'ready' | 'unavailable'; pid: number | null }; entries: DiagnosticEntry[] };
@@ -90,6 +91,8 @@ export class WeWorkHost {
   harnesses(): Promise<HarnessInstallation[]> { return Promise.resolve([]); }
   harnessPolicy() { return Promise.resolve({ allowedHarnesses: [] as HarnessId[] }); }
   harnessModels(): Promise<HarnessModelCatalogResult> { return Promise.resolve({ models: [], defaults: {} }); }
+  sdhConnection(): Promise<SdhConnection> { return Promise.resolve({ baseUrl: '', configured: false }); }
+  setSdhConnection(_baseUrl: string): Promise<SdhConnection> { return Promise.reject(new WeWorkHostError('HOST_UNAVAILABLE','远程 Harness 配置需要 Desktop Host')); }
   skills(_assignment?: SkillDiscoveryRequest): Promise<SkillCatalogResult> { return Promise.resolve({ skills: webDemoSkills, reason: 'Web 演示模式仅展示 WeWork 示例；Workspace Skill 扫描需要 Desktop Host' }); }
   dataInfo(): Promise<WeWorkDataInfo> { return Promise.reject(new WeWorkHostError('HOST_UNAVAILABLE','数据目录需要 Desktop Host')); }
   setHarnessPolicy(_allowedHarnesses: HarnessId[]): Promise<{allowedHarnesses: HarnessId[]}> { return Promise.reject(new WeWorkHostError('HOST_UNAVAILABLE','设备策略需要 Desktop Host')); }
@@ -187,6 +190,8 @@ export class LoopbackWeWorkHost {
   harnessPolicy() { return this.request<{ allowedHarnesses: HarnessId[] }>('/v1/harnesses/policy'); }
   setHarnessPolicy(allowedHarnesses: HarnessId[]) { return this.request<{ allowedHarnesses: HarnessId[] }>('/v1/harnesses/policy', { method: 'POST', body: JSON.stringify({ allowedHarnesses }) }); }
   harnessModels() { return this.request<HarnessModelCatalogResult>('/v1/harnesses/models'); }
+  sdhConnection() { return this.request<SdhConnection>('/v1/harnesses/smalldash/connection'); }
+  setSdhConnection(baseUrl: string) { return this.request<SdhConnection>('/v1/harnesses/smalldash/connection', { method: 'POST', body: JSON.stringify({ baseUrl }) }); }
   skills(assignment?: SkillDiscoveryRequest) { return this.request<SkillCatalogResult>('/v1/skills/discover', { method: 'POST', body: JSON.stringify(assignment ?? {}) }); }
   saveHarnessModel(input: HarnessModelInput) { return this.request<HarnessModel>('/v1/harnesses/models', { method: 'POST', body: JSON.stringify(input) }); }
   probeHarnessModel(input: HarnessModelInput) { return this.request<{ok: boolean; modelIds?: string[]; error?: string}>('/v1/harnesses/models/probe', { method: 'POST', body: JSON.stringify(input) }); }

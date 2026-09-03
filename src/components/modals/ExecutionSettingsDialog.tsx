@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Cpu, Download, FolderGit2, Info, KeyRound, MonitorCog, RefreshCw, Settings2, X } from 'lucide-react';
 import { useWeWorkStore } from '../../state/weworkStore';
-import { weworkHost, type CredentialMetadata, type HarnessId, type HarnessInstallation, type HarnessModel, type HarnessModelInput, type WeWorkDataInfo } from '../../runtime/weworkHost';
+import { weworkHost, type CredentialMetadata, type HarnessId, type HarnessInstallation, type HarnessModel, type HarnessModelInput, type SdhConnection, type WeWorkDataInfo } from '../../runtime/weworkHost';
 import { harnessNames, harnessNeedsModel, harnessNeedsServiceUrl, harnessSupportsProfiles } from '../../runtime/harnessPresentation';
 import piIcon from '../../assets/harness-icons/pi.svg?no-inline';
 import claudeCodeIcon from '../../assets/harness-icons/claude-code.svg?no-inline';
@@ -15,7 +15,7 @@ const installHelp: Partial<Record<HarnessId, string>> = {
   'codex-cli': '请安装 Codex CLI，并在终端完成登录。',
   'gemini-cli': '请安装 Gemini CLI，并在终端完成登录。',
   pi: '请先安装 Pi，再由 WeWork 探测本机命令。',
-  smalldashharness: '内置 smalldashharness 资源缺失，请重新构建桌面版。',
+  smalldashharness: '填写远程 smalldashharness Docker 服务地址。',
 };
 
 const harnessIconSources: Partial<Record<HarnessId, string>> = {
@@ -52,6 +52,7 @@ export function ExecutionSettingsDialog({ onClose, initialSection = 'general' }:
   const [dataInfo, setDataInfo] = useState<WeWorkDataInfo | null>(null);
   const [models, setModels] = useState<HarnessModel[]>([]);
   const [modelDraft, setModelDraft] = useState({ name: '', provider: 'openai-compatible', modelId: '', baseUrl: '' });
+  const [sdhConnection, setSdhConnection] = useState<SdhConnection>({ baseUrl: '', configured: false });
 
   const selectedInstallation = useMemo(() => {
     const found = installations.find((item) => item.harness === harness);
@@ -82,11 +83,12 @@ export function ExecutionSettingsDialog({ onClose, initialSection = 'general' }:
   const refreshHarnesses = async () => {
     setLoadingHarnesses(true);
     try {
-      const [found, policy, vault, catalog] = await Promise.all([weworkHost.harnesses(), weworkHost.harnessPolicy(), weworkHost.credentials().catch(() => []), weworkHost.harnessModels().catch(() => ({ models: [], defaults: {} }))]);
+      const [found, policy, vault, catalog, connection] = await Promise.all([weworkHost.harnesses(), weworkHost.harnessPolicy(), weworkHost.credentials().catch(() => []), weworkHost.harnessModels().catch(() => ({ models: [], defaults: {} })), weworkHost.sdhConnection().catch(() => ({ baseUrl: '', configured: false }))]);
       setInstallations(found);
       setAllowedHarnesses(policy.allowedHarnesses);
       setCredentials(vault.filter((item) => item.kind === 'model-api-key'));
       setModels(catalog.models);
+      setSdhConnection(connection);
       const ready = found.find((item) => item.executionReady && policy.allowedHarnesses.includes(item.harness));
       setHarness((current) => found.some((item) => item.harness === current && item.executionReady && policy.allowedHarnesses.includes(current)) ? current : ready?.harness ?? 'smalldashharness');
     } catch (error) {
@@ -179,9 +181,10 @@ export function ExecutionSettingsDialog({ onClose, initialSection = 'general' }:
         <main className="min-w-0 flex-1 overflow-y-auto">
           {section === 'storage' && <DataWorkspaceSettings dataInfo={dataInfo} />}
           {section === 'execution' && <div className="space-y-5 p-7">
-            <div><h3 className="text-lg font-bold text-slate-900">Harness</h3><p className="mt-1 text-xs text-slate-400">检测并管理这台设备允许助手使用的 Harness。模型和 Session 参数在助手配置中设置。</p></div>
+            <div><h3 className="text-lg font-bold text-slate-900">Harness</h3><p className="mt-1 text-xs text-slate-400">连接并管理可供助手使用的 Harness；这里管理远程 SDH 的可用/默认模型，助手配置负责选择模型。</p></div>
+        <section className="rounded-xl border border-slate-200 p-4"><h4 className="text-sm font-bold text-slate-800">远程 smalldashharness</h4><p className="mt-1 text-[11px] leading-5 text-slate-400">填写 Docker 暴露给当前设备的地址，例如 http://192.168.1.20:23334。这里不是模型 Base URL。</p><div className="mt-3 flex gap-2"><input aria-label="SDH 服务地址" value={sdhConnection.baseUrl} onChange={(event) => setSdhConnection({ baseUrl: event.target.value, configured: Boolean(event.target.value.trim()) })} placeholder="http://&lt;远程机器&gt;:23334" className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-xs" /><button type="button" disabled={saving || !sdhConnection.baseUrl.trim()} onClick={async()=>{setSaving(true);try{const saved=await weworkHost.setSdhConnection(sdhConnection.baseUrl);setSdhConnection(saved);setMessage('远程 smalldashharness 已连接');await refreshHarnesses();}catch(error){setMessage(error instanceof Error?error.message:String(error));}finally{setSaving(false);}}} className="rounded-lg bg-slate-900 px-4 text-xs font-semibold text-white disabled:opacity-40">保存并测试</button></div><p className={`mt-2 text-[10px] ${sdhConnection.reachable?'text-emerald-600':'text-slate-400'}`}>{sdhConnection.reachable?'● 已连接远程 SDH':sdhConnection.error??'保存时会调用远程 /health 检查服务'}</p></section>
         <section aria-labelledby="local-harnesses">
-          <div className="mb-3 flex items-center justify-between gap-3"><div><h4 id="local-harnesses" className="text-sm font-bold text-slate-800">本机 Harness</h4><p className="mt-1 text-[11px] text-slate-400">这里只控制设备能力范围；助手使用哪个 Harness，在创建或配置助手时选择。</p></div><button type="button" disabled={loadingHarnesses || !desktopHostAvailable} onClick={() => void refreshHarnesses()} className="flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-[11px] font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"><RefreshCw className={`h-3.5 w-3.5 ${loadingHarnesses ? 'animate-spin' : ''}`} />重新检测</button></div>
+          <div className="mb-3 flex items-center justify-between gap-3"><div><h4 id="local-harnesses" className="text-sm font-bold text-slate-800">可用 Harness</h4><p className="mt-1 text-[11px] text-slate-400">SDH 是远程服务；其他 Harness 仅展示本机探测结果。助手使用哪个 Harness，在助手配置中选择。</p></div><button type="button" disabled={loadingHarnesses || !desktopHostAvailable} onClick={() => void refreshHarnesses()} className="flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-[11px] font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"><RefreshCw className={`h-3.5 w-3.5 ${loadingHarnesses ? 'animate-spin' : ''}`} />重新检测</button></div>
           <div className="grid grid-cols-2 gap-2">{installations.filter((item) => item.available).map((item) => {
             const allowed = allowedHarnesses.includes(item.harness);
             const canAllow = Boolean(item.harness === 'smalldashharness' && item.executionReady && desktopHostAvailable);
