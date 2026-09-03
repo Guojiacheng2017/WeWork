@@ -51,7 +51,7 @@ export function ExecutionSettingsDialog({ onClose, initialSection = 'general' }:
   const [restoreTeams, setRestoreTeams] = useState(() => window.localStorage.getItem('wework.restoreTeams') !== 'false');
   const [dataInfo, setDataInfo] = useState<WeWorkDataInfo | null>(null);
   const [models, setModels] = useState<HarnessModel[]>([]);
-  const [modelDraft, setModelDraft] = useState({ name: '', provider: 'openai', modelId: '', baseUrl: '' });
+  const [modelDraft, setModelDraft] = useState({ name: '', provider: 'openai-compatible', modelId: '', baseUrl: '' });
 
   const selectedInstallation = useMemo(() => {
     const found = installations.find((item) => item.harness === harness);
@@ -74,7 +74,7 @@ export function ExecutionSettingsDialog({ onClose, initialSection = 'general' }:
     setDraft((current) => ({
       ...current,
       name: `${harnessNames[harness]}${detected?.modelId ? ` · ${detected.modelId}` : ''}`,
-      provider: detected?.provider ?? (harness === 'smalldashharness' ? 'openai' : ''),
+      provider: detected?.provider ?? (harness === 'smalldashharness' ? 'openai-compatible' : ''),
       modelId: detected?.modelId ?? '',
     }));
   }, [harness, selectedInstallation]);
@@ -100,12 +100,10 @@ export function ExecutionSettingsDialog({ onClose, initialSection = 'general' }:
     const input: HarnessModelInput = { harness, ...modelDraft, api: 'openai-completions', verified: false };
     setSaving(true);
     try {
-      const probe = await weworkHost.probeHarnessModel(input);
-      if (!probe.ok) { setMessage(`模型检查失败：${probe.error ?? '无法使用'}`); return; }
-      await weworkHost.saveHarnessModel({ ...input, verified: true });
+      const savedModel = await weworkHost.saveHarnessModel(input);
       setModels((await weworkHost.harnessModels()).models);
       setModelDraft((current) => ({ ...current, name: '', modelId: '' }));
-      setMessage('模型已检查并加入该 Harness 的可用模型');
+      setMessage(savedModel.verified ? '模型已保存，连接检查通过' : '模型配置已保存；端点当前未验证，可稍后直接使用或重新检查');
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { setSaving(false); }
   };

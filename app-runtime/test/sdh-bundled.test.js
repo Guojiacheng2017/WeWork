@@ -4,7 +4,20 @@ import { createServer } from 'node:http';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { executeSmalldashRun } from '../src/smalldash-runtime.js';
+import { executeSmalldashRun, invokeSmalldashControl } from '../src/smalldash-runtime.js';
+
+test('WeWork manages the bundled SDH model catalog through its stable IPC', async () => {
+  const root=await mkdtemp(join(tmpdir(),'wework-sdh-models-'));
+  const options={dataRoot:root,runnerPath:process.env.WEWORK_TEST_SDH_RUNNER_PATH};
+  const saved=await invokeSmalldashControl({type:'models.save',config:{name:'Local model',provider:'openai-compatible',modelId:'local-1',baseUrl:'http://127.0.0.1:9/v1',authentication:'none'}},options);
+  assert.equal(saved.model.configured,true);
+  assert.equal(saved.model.authentication,'none');
+  const selected=await invokeSmalldashControl({type:'models.setDefault',id:saved.model.id},options);
+  assert.equal(selected.defaultId,saved.model.id);
+  const listed=await invokeSmalldashControl({type:'models.list'},options);
+  assert.equal(listed.models[0].id,saved.model.id);
+  assert.equal(listed.defaultId,saved.model.id);
+});
 
 test('bundled sdh uses selected model, executes Host tools and resumes native history', async t => {
   const requests=[];

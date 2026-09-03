@@ -52,7 +52,7 @@ export class HarnessModelCatalog {
         if (!plain(model) || model.harness !== WEWORK_MANAGED_HARNESS) return [];
         try { return [normalizeHarnessModelInput(model, { persisted: true, trustedVerification })]; } catch { return []; }
       });
-      const defaults = plain(value?.defaults) && typeof value.defaults.smalldashharness === 'string' && models.some((model) => model.id === value.defaults.smalldashharness && model.verified)
+      const defaults = plain(value?.defaults) && typeof value.defaults.smalldashharness === 'string' && models.some((model) => model.id === value.defaults.smalldashharness)
         ? { smalldashharness: value.defaults.smalldashharness } : {};
       const sanitized = { schemaVersion: 2, models, defaults: trustedVerification ? defaults : {} };
       if (JSON.stringify(value) !== JSON.stringify(sanitized)) {
@@ -84,7 +84,6 @@ export class HarnessModelCatalog {
       const prior = requested.id ? value.models.find((model) => model.id === requested.id) : undefined;
       const model = { ...requested, id: prior?.id ?? randomUUID(), updatedAt: now, createdAt: prior?.createdAt ?? now };
       value.models = prior ? value.models.map((item) => item.id === model.id ? model : item) : [...value.models, model];
-      if (value.defaults[model.harness] === model.id && !model.verified) delete value.defaults[model.harness];
       if (!value.defaults[model.harness] && model.verified) value.defaults[model.harness] = model.id;
       await this.#write(value);
       return { ...model, isDefault: value.defaults[model.harness] === model.id };
@@ -96,7 +95,6 @@ export class HarnessModelCatalog {
       const value = await this.#read();
       const model = value.models.find((item) => item.id === modelId);
       if (!model || model.harness !== harness) fail('MODEL_HARNESS_MISMATCH', 'model does not belong to this Harness');
-      if (!model.verified) fail('MODEL_NOT_VERIFIED', 'model must be verified before it can be the default');
       value.defaults[harness] = modelId;
       await this.#write(value);
     });

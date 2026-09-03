@@ -10,14 +10,14 @@ import { CheckpointStore } from "./host/checkpoint-store.js";
 import { MacDirectoryService } from "./host/directory.js";
 import { MacKeychainVault } from "./host/keychain.js";
 import { RuntimeManager } from "./host/runtime-manager.js";
-import { createHarnessModelProbe, createHarnessModelSaver, withVaultCredential } from "./host/runtime-execute.js";
+import { withVaultCredential } from "./host/runtime-execute.js";
 import { createHostServer, EventJournal } from "./host/server.js";
 import { createSshWorkspaceProbe, OpenSshService } from "./host/ssh.js";
 import { HarnessDetector } from "./host/harness-detector.js";
 import { HarnessPolicyStore } from "./host/harness-policy.js";
 import { HarnessModelCatalog } from './host/harness-model-catalog.js';
-import { discoverPiModels } from './host/pi-model-discovery.js';
 import { executeHarness } from "./harness-dispatch.js";
+import { invokeSmalldashControl } from './smalldash-runtime.js';
 import { discoverAvailableSkills } from './skill-loader.js';
 import { WeWorkWorkspaceLayout } from './host/wework-workspace-layout.js';
 import { resolveWeWorkConfiguration } from './host/wework-configuration.js';
@@ -36,7 +36,7 @@ const bundledSkillsRoot = process.env.WEWORK_SKILLS_DIR ?? (process.argv[1].ends
 const piExtensionPath = process.env.WEWORK_PI_EXTENSION_PATH ?? join(dirname(process.argv[1]), 'pi-wework-extension.mjs');
 const harnesses = new HarnessDetector({bundledSdh:async()=>{await access(runnerPath);return true;}});
 const harnessPolicy = new HarnessPolicyStore(join(configRoot, "harness-policy.json"));
-const harnessModels = new HarnessModelCatalog(join(configRoot, 'harness-models.json'));
+const legacyHarnessModels = new HarnessModelCatalog(join(configRoot, 'harness-models.json'));
 const journal = new EventJournal();
 const workspaceLayout = new WeWorkWorkspaceLayout({ weworkRoot, configRoot });
 const wework = new WeWorkService(new TeamPartitionedWeWorkStorage(weworkRoot, {
@@ -60,20 +60,38 @@ const runtime = new RuntimeManager({
 wework.isEmployeeActive = (employeeId) => [...runtime.active.values()].some((run) => run.employeeId === employeeId);
 const coordinator = new CollaborationCoordinator({wework,runtime});
 wework.attachCoordinator(coordinator);
-const probeHarnessModel = createHarnessModelProbe({ detectHarnesses: () => harnesses.detect(), vault });
-const saveHarnessModel = createHarnessModelSaver({ catalog: harnessModels, probe: probeHarnessModel, vault });
+const sdhControl = (message) => invokeSmalldashControl(message,{dataRoot:runtimeDataRoot,runnerPath});
+const mapSdhModel = (model) => ({...model,harness:'smalldashharness',api:'openai-completions',source:'wework-managed'});
+const listHarnessModels = async () => {
+  let result=await sdhControl({type:'models.list'});
+  if(!(result.models??[]).length) {
+    const legacy=await legacyHarnessModels.list();
+    for(const model of legacy.models) await sdhControl({type:'models.save',config:{id:model.id,name:model.name,provider:'openai-compatible',modelId:model.modelId,baseUrl:model.baseUrl,contextWindow:model.contextWindow,maxTokens:model.maxTokens,authentication:'none'}});
+    if(legacy.defaults.smalldashharness) await sdhControl({type:'models.setDefault',id:legacy.defaults.smalldashharness});
+    if(legacy.models.length) result=await sdhControl({type:'models.list'});
+  }
+  return {models:(result.models??[]).map(mapSdhModel),defaults:result.defaultId?{smalldashharness:result.defaultId}:{}};
+};
+const probeHarnessModel = async (input) => {
+  if(input?.harness!=='smalldashharness') return {ok:false,error:'当前版本仅适配 smalldashharness'};
+  const result=await sdhControl({type:'models.probe',config:{baseUrl:input.baseUrl,modelId:input.modelId}});
+  return {ok:Boolean(result.reachable&&result.chatCompletionsSupported),modelIds:result.discoveredModels,error:result.error?.message};
+};
+const saveHarnessModel = async (input) => {
+  if(input?.harness!=='smalldashharness') throw Object.assign(new Error('当前版本仅适配 smalldashharness'),{code:'MODEL_CONFIG_INVALID'});
+  const saved=await sdhControl({type:'models.save',config:{name:input.name,provider:'openai-compatible',modelId:input.modelId,baseUrl:input.baseUrl,contextWindow:input.contextWindow,maxTokens:input.maxTokens,authentication:'none'}});
+  const probed=await sdhControl({type:'models.probe',id:saved.model.id});
+  return mapSdhModel(probed.model??saved.model);
+};
 const services = {
   weworkCall: (method, args) => wework.call(method, args),
   dataInfo: () => ({ rootPath: weworkRoot, configPath: configRoot, teamsPath: weworkRoot, runtimePath: join(configRoot, 'runtime'), platform: process.platform }),
   listHarnesses: () => harnesses.detect(),
   getHarnessPolicy: () => harnessPolicy.get(), setHarnessPolicy: (input) => harnessPolicy.set(input.allowedHarnesses ?? []),
-  listHarnessModels: async () => {
-    const weworkManaged = await harnessModels.list();
-    const pi = (await harnesses.detect()).find((item) => item.harness === 'pi' && item.executionReady);
-    if (!pi?.executablePath) return weworkManaged;
-    try { const discovered = await discoverPiModels(pi.executablePath); return { models: [...weworkManaged.models, ...discovered.models], defaults: { ...weworkManaged.defaults, ...discovered.defaults } }; }
-    catch { return weworkManaged; }
-  }, saveHarnessModel, setDefaultHarnessModel: (harness, modelId) => harnessModels.setDefault(harness, modelId),
+  listHarnessModels, saveHarnessModel, setDefaultHarnessModel: async (harness, modelId) => {
+    if(harness!=='smalldashharness') throw Object.assign(new Error('当前版本仅适配 smalldashharness'),{code:'MODEL_CONFIG_INVALID'});
+    await sdhControl({type:'models.setDefault',id:modelId}); return listHarnessModels();
+  },
   probeHarnessModel,
   listSkills: async (request = {}) => {
     const { workspace, skillRoots } = await wework.resolveSkillCatalog(request);

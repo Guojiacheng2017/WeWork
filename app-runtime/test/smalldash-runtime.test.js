@@ -52,7 +52,7 @@ test('cancellation also waits for an already admitted Host tool write',async t=>
 test('the embedded child never inherits the Host bearer token', async t => {
   const root=await mkdtemp(join(tmpdir(),'sdh-child-env-'));
   const runner=join(root,'runner.mjs');
-  await writeFile(runner,`process.on('message',(message)=>{ if(message.type==='start'){ process.send({type:'result',result:{nativeSessionId:message.nativeSessionId,messages:[],finalText:process.env.WEWORK_HOST_TOKEN ?? 'absent',usage:{}}}); process.disconnect(); } });`);
+  await writeFile(runner,`process.on('message',(message)=>{ if(message.type==='session.start'){ process.send({type:'result',result:{nativeSessionId:message.sessionId,messages:[],finalText:process.env.WEWORK_HOST_TOKEN ?? 'absent',usage:{}}}); process.disconnect(); } });`);
   const workspace=join(root,'workspace'); await import('node:fs/promises').then(({mkdir})=>mkdir(workspace));
   const prior=process.env.WEWORK_HOST_TOKEN; process.env.WEWORK_HOST_TOKEN='host-secret';
   t.after(()=>{ if(prior===undefined) delete process.env.WEWORK_HOST_TOKEN; else process.env.WEWORK_HOST_TOKEN=prior; });
@@ -68,7 +68,7 @@ test('assigned canonical employee Skills are loaded into smalldash execution', a
   await mkdir(join(employeeSkills, 'specialist'), { recursive: true });
   await writeFile(join(employeeSkills, 'specialist', 'SKILL.md'), '# Specialist\nCANONICAL_EMPLOYEE_SKILL');
   const runner = join(root, 'runner.mjs');
-  await writeFile(runner, `process.on('message',(message)=>{ if(message.type==='start'){ process.send({type:'result',result:{nativeSessionId:message.nativeSessionId,messages:[],finalText:message.persona,usage:{}}}); process.disconnect(); } });`);
+  await writeFile(runner, `process.on('message',(message)=>{ if(message.type==='session.start'){ process.send({type:'result',result:{nativeSessionId:message.sessionId,messages:[],finalText:message.persona,usage:{}}}); process.disconnect(); } });`);
   const spec = { id: 'skill-run', employeeId: 'employee', runtimeProfile: { id: 'profile', adapter: 'smalldash', model: { modelId: 'fixture', baseUrl: 'http://127.0.0.1:1/v1' } }, employee: { displayName: 'Worker', roleName: 'Analyst', skills: [{ id: 'specialist', name: 'Specialist' }] }, work: { title: 'Skill', goal: 'Use it' }, workspace: { kind: 'local', rootPath: workspace }, skillRoots: [employeeSkills], session: { id: 'session' } };
 
   const result = await executeSmalldashRun(spec, { dataRoot: root, runnerPath: runner });
@@ -77,7 +77,7 @@ test('assigned canonical employee Skills are loaded into smalldash execution', a
 
 test('a disabled network permission permits loopback models but rejects remote model endpoints', async t => {
   const root=await mkdtemp(join(tmpdir(),'sdh-network-policy-')); const workspace=join(root,'workspace'); await import('node:fs/promises').then(({mkdir})=>mkdir(workspace));
-  const runner=join(root,'runner.mjs'); await writeFile(runner,`process.on('message',(message)=>{ if(message.type==='start'){ process.send({type:'result',result:{nativeSessionId:message.nativeSessionId,messages:[],finalText:'ok',usage:{}}}); process.disconnect(); } });`);
+  const runner=join(root,'runner.mjs'); await writeFile(runner,`process.on('message',(message)=>{ if(message.type==='session.start'){ process.send({type:'result',result:{nativeSessionId:message.sessionId,messages:[],finalText:'ok',usage:{}}}); process.disconnect(); } });`);
   const base={id:'network-run',employeeId:'employee',runtimeProfile:{id:'profile',adapter:'smalldash',model:{modelId:'fixture',baseUrl:'https://models.example/v1'}},runtimeSettings:{permissions:{network:false}},employee:{displayName:'Worker',roleName:'Analyst',skills:[]},work:{title:'Network',goal:'Check'},workspace:{kind:'local',rootPath:workspace},session:{id:'session'}};
   await assert.rejects(executeSmalldashRun(base,{dataRoot:root,runnerPath:runner}),/network permission/i);
   const result=await executeSmalldashRun({...base,id:'loopback-run',runtimeProfile:{...base.runtimeProfile,model:{...base.runtimeProfile.model,baseUrl:'http://127.0.0.1:8000/v1'}}},{dataRoot:root,runnerPath:runner});

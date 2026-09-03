@@ -21,7 +21,7 @@ export type HarnessModel = {
   id: string; harness: HarnessId; name: string; provider: string; modelId: string;
   api?: 'openai-completions' | 'openai-responses'; baseUrl?: string; credentialRef?: string; apiKeyEnv?: string;
   source?: 'wework-managed' | 'harness-discovered';
-  verified: boolean; isDefault: boolean; createdAt: string; updatedAt: string;
+  authentication?: 'none'; configured?: boolean; verified: boolean; isDefault: boolean; createdAt: string; updatedAt: string;
 };
 export type HarnessModelInput = Omit<HarnessModel, 'id' | 'isDefault' | 'createdAt' | 'updatedAt'> & { id?: string };
 export type HarnessModelCatalogResult = { models: HarnessModel[]; defaults: Partial<Record<HarnessId, string>> };

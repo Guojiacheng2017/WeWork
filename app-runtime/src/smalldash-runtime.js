@@ -47,7 +47,7 @@ export async function executeSmalldashRun(spec, options = {}) {
     options.signal?.addEventListener('abort',abort,{once:true});
     child.on('message',async message=>{
       if(message.type==='result') result=message.result;
-      if(message.type==='failure') failure=new Error(message.message);
+      if(message.type==='failure') failure=Object.assign(new Error(message.message),{code:message.code});
       if(message.type==='event') {
         if(message.eventType==='text') options.emit?.({type:'assistant.delta',text:message.data.content});
         if(message.eventType==='reasoning_cap') options.emit?.({type:'assistant.activity',activity:'thinking',text:`上下文推理 ${message.data.chars ?? 0}/${message.data.max ?? 0}`});
@@ -77,7 +77,25 @@ export async function executeSmalldashRun(spec, options = {}) {
       else if(code!==0 || !result) reject(new Error('sdh exited without a completed result'));
       else resolve(result);
     });
-    send({type:'start',nativeSessionId,model,apiKey:options.apiKey,prompt:buildWorkPrompt(spec),persona:buildSmalldashPersona(spec, skills),tools:tools.map(({name,description,parameters})=>({name,description,parameters}))});
+    send({type:'session.start',sessionId:nativeSessionId,modelConfigurationId:spec.runtimeProfile.modelCatalogId,model:spec.runtimeProfile.modelCatalogId ? undefined : model,prompt:buildWorkPrompt(spec),persona:buildSmalldashPersona(spec, skills),tools:tools.map(({name,description,parameters})=>({name,description,parameters}))});
     if(options.signal?.aborted) abort();
   });
+}
+
+export function invokeSmalldashControl(message, options = {}) {
+  if (!options.dataRoot) throw new Error('sdh writable data directory is required');
+  const dataRoot = join(options.dataRoot, 'smalldash');
+  const runnerPath = options.runnerPath ?? fileURLToPath(new URL('../../../smalldashharness/harness/wework-runner.js',import.meta.url));
+  return mkdir(dataRoot,{recursive:true}).then(()=>new Promise((resolve,reject)=>{
+    const child=fork(runnerPath,[],{env:{...childEnvironment(process.env),SDH_DATA_DIR:dataRoot},stdio:['ignore','ignore','ignore','ipc'],serialization:'json'});
+    let response,failure;
+    const timer=setTimeout(()=>{child.kill('SIGKILL');failure=Object.assign(new Error('sdh control request timed out'),{code:'MODEL_ENDPOINT_UNREACHABLE'});},options.timeoutMs ?? 12000);
+    child.on('message',(value)=>{
+      if(value.type==='failure') failure=Object.assign(new Error(value.message),{code:value.code});
+      else response=value;
+    });
+    child.once('error',(error)=>{failure=error;});
+    child.once('close',(code)=>{clearTimeout(timer);if(failure)reject(failure);else if(code!==0||!response)reject(new Error('sdh control request failed'));else resolve(response);});
+    child.send(message);
+  }));
 }

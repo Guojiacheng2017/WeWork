@@ -44,14 +44,15 @@ test('catalog rejects connections and defaults for Harness-managed models', asyn
   await assert.rejects(catalog.setDefault('pi', 'pi:anthropic:claude'), (error) => error.code === 'MODEL_CONNECTION_HARNESS_MANAGED');
 });
 
-test('unverified models cannot become a Harness default', async () => {
+test('an unverified saved model can be explicitly selected as the Harness default', async () => {
   const root = await mkdtemp(join(tmpdir(), 'wework-model-catalog-'));
   const catalog = new HarnessModelCatalog(join(root, 'harness-models.json'));
   const model = await catalog.save({ harness: 'smalldashharness', name: 'Unchecked', provider: 'openai', modelId: 'unknown', verified: false });
-  await assert.rejects(catalog.setDefault('smalldashharness', model.id), (error) => error.code === 'MODEL_NOT_VERIFIED');
+  const result = await catalog.setDefault('smalldashharness', model.id);
+  assert.equal(result.defaults.smalldashharness, model.id);
 });
 
-test('catalog clears a tampered schema-v2 default that points to an unverified model', async () => {
+test('catalog retains an explicit schema-v2 default that points to an unverified model', async () => {
   const root = await mkdtemp(join(tmpdir(), 'wework-model-catalog-'));
   const path = join(root, 'harness-models.json');
   const timestamp = '2026-01-01T00:00:00.000Z';
@@ -62,12 +63,12 @@ test('catalog clears a tampered schema-v2 default that points to an unverified m
   })));
 
   const result = await new HarnessModelCatalog(path).list();
-  assert.deepEqual(result.defaults, {});
-  assert.equal(result.models[0].isDefault, false);
-  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')).defaults, {});
+  assert.deepEqual(result.defaults, { smalldashharness: 'unchecked' });
+  assert.equal(result.models[0].isDefault, true);
+  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')).defaults, { smalldashharness: 'unchecked' });
 });
 
-test('demoting the current default clears it until a verified model is selected', async () => {
+test('editing the current default keeps its explicit selection even when verification expires', async () => {
   const root = await mkdtemp(join(tmpdir(), 'wework-model-catalog-'));
   const path = join(root, 'harness-models.json');
   const catalog = new HarnessModelCatalog(path);
@@ -76,8 +77,8 @@ test('demoting the current default clears it until a verified model is selected'
   const demoted = await catalog.save({ id: verified.id, harness: 'smalldashharness', name: 'Verified', provider: 'openai', modelId: 'verified' });
 
   assert.equal(demoted.verified, false);
-  assert.equal(demoted.isDefault, false);
-  assert.deepEqual((await catalog.list()).defaults, {});
+  assert.equal(demoted.isDefault, true);
+  assert.deepEqual((await catalog.list()).defaults, { smalldashharness: verified.id });
 });
 
 test('catalog never trusts a Renderer supplied verified flag without Host evidence', async () => {
@@ -86,7 +87,8 @@ test('catalog never trusts a Renderer supplied verified flag without Host eviden
   const claimed = await catalog.save({ harness: 'smalldashharness', name: 'Claimed', provider: 'openai', modelId: 'claimed', baseUrl: 'https://models.example/v1', verified: true });
 
   assert.equal(claimed.verified, false);
-  await assert.rejects(catalog.setDefault('smalldashharness', claimed.id), (error) => error.code === 'MODEL_NOT_VERIFIED');
+  const selected = await catalog.setDefault('smalldashharness', claimed.id);
+  assert.equal(selected.defaults.smalldashharness, claimed.id);
 });
 
 test('catalog rejects ambiguous credential sources before persistence', async () => {

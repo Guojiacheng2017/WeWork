@@ -51,13 +51,13 @@ export function EmployeeConfigDialog({ employee, team, onClose }: { employee: We
   useEffect(() => {
     void Promise.all([weworkHost.harnesses(), weworkHost.harnessPolicy(), weworkHost.harnessModels()]).then(([items, policy, catalog]) => {
       setAvailableHarnesses(items.filter((item) => item.executionReady && policy.allowedHarnesses.includes(item.harness)));
-      const verified = catalog.models.filter((model) => model.verified);
-      setHarnessModels(verified); setDefaultHarnessModels(catalog.defaults);
+      const availableModels = catalog.models;
+      setHarnessModels(availableModels); setDefaultHarnessModels(catalog.defaults);
       setSessionExecution((current) => {
-        const migrated = migrateLegacyCatalogSelection(current, verified);
-        if (migrated.modelCatalogId && verified.some((model) => model.id === migrated.modelCatalogId && model.harness === adapterHarness(migrated.adapter))) return migrated;
+        const migrated = migrateLegacyCatalogSelection(current, availableModels);
+        if (migrated.modelCatalogId && availableModels.some((model) => model.id === migrated.modelCatalogId && model.harness === adapterHarness(migrated.adapter))) return migrated;
         const harness = adapterHarness(current.adapter);
-        const selected = verified.find((model) => model.id === catalog.defaults[harness]) ?? verified.find((model) => model.harness === harness);
+        const selected = availableModels.find((model) => model.id === catalog.defaults[harness]) ?? availableModels.find((model) => model.harness === harness);
         return selected ? executionWithCatalogModel(current, selected) : current;
       });
     }).catch(() => { setAvailableHarnesses([]); setHarnessModels([]); setDefaultHarnessModels({}); });
