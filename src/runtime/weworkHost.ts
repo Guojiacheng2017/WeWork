@@ -25,7 +25,7 @@ export type HarnessModel = {
 };
 export type HarnessModelInput = Omit<HarnessModel, 'id' | 'isDefault' | 'createdAt' | 'updatedAt'> & { id?: string };
 export type HarnessModelCatalogResult = { models: HarnessModel[]; defaults: Partial<Record<HarnessId, string>> };
-export type AvailableSkill = { id: string; name: string; description: string; source: 'harness' | 'wework' | 'workspace' };
+export type AvailableSkill = { id: string; name: string; description: string; source: 'wework' | 'workspace' };
 export type DiagnosticEntry = { id: number; time: string; level: 'info' | 'error'; source: string; message: string; details?: Record<string, unknown> };
 export type DiagnosticSnapshot = { status: { host: 'ready' | 'unavailable'; pid: number | null }; entries: DiagnosticEntry[] };
 export type SkillCatalogResult = { skills: AvailableSkill[]; reason?: string };

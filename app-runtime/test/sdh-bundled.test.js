@@ -38,6 +38,9 @@ test('bundled sdh uses selected model, executes Host tools and resumes native hi
   assert.equal(first.finalText,'team acknowledged');
   assert.equal(executed,1);
   assert.equal(requests[0].model,'test-selected-model');
+  assert.ok(requests[0].tools.some((tool)=>tool.function.name==='get_skill_context'));
+  assert.match(requests[0].messages[0].content,/SDH capability catalog/);
+  assert.match(requests[0].messages[0].content,/training/);
   assert.equal(requests[1].messages.at(-1).role,'tool');
   assert.match(requests[1].messages.at(-1).content,/TEAM-A/);
   const second=await executeSmalldashRun({...spec,id:'second',session:{...spec.session,nativeSessionId:first.nativeSessionId},followUp:'continue'},options);

@@ -39,7 +39,7 @@ export async function executeSmalldashRun(spec, options = {}) {
   const tools = options.tools ?? [];
   options.signal?.throwIfAborted();
   return new Promise((resolve,reject)=>{
-    const child=fork(runnerPath,[],{cwd,env:{...childEnvironment(process.env),SDH_DATA_DIR:dataRoot},stdio:['ignore','ignore','ignore','ipc'],serialization:'json'});
+    const child=fork(runnerPath,[],{cwd,env:{...childEnvironment(process.env),SDH_DATA_DIR:dataRoot,...(options.harnessSkillsRoot?{SDH_SKILLS_DIR:options.harnessSkillsRoot}:{})},stdio:['ignore','ignore','ignore','ipc'],serialization:'json'});
     let result,failure,killTimer;
     const pendingTools=new Set();
     const send = message => { if(child.connected) child.send(message,error=>{if(error) failure=error;}); };

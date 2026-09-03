@@ -37,6 +37,8 @@ const bundledSkillRoots = process.env.WEWORK_SKILLS_DIR
   : process.argv[1].endsWith('.cjs')
     ? [{ root: join(dirname(process.argv[1]), 'skills', 'wework'), source: 'wework' }, { root: join(dirname(process.argv[1]), 'skills', 'sdh'), source: 'harness' }]
     : [{ root: resolve(dirname(process.argv[1]), '../skills'), source: 'wework' }, { root: resolve(dirname(process.argv[1]), '../../../smalldashharness/harness/skills'), source: 'harness' }];
+const weworkSkillRoots = bundledSkillRoots.filter(({ source }) => source === 'wework');
+const harnessSkillsRoot = bundledSkillRoots.find(({ source }) => source === 'harness')?.root;
 const piExtensionPath = process.env.WEWORK_PI_EXTENSION_PATH ?? join(dirname(process.argv[1]), 'pi-wework-extension.mjs');
 const harnesses = new HarnessDetector({bundledSdh:async()=>{await access(runnerPath);return true;}});
 const harnessPolicy = new HarnessPolicyStore(join(configRoot, "harness-policy.json"));
@@ -57,7 +59,7 @@ const runtime = new RuntimeManager({
   execute: withVaultCredential(vault, async (spec, options) => {
     const harnessId=spec.runtimeProfile.adapter==='smalldash'?'smalldashharness':spec.runtimeProfile.adapter;
     if(!(await harnessPolicy.get()).allowedHarnesses.includes(harnessId)) throw new Error('Harness is not allowed on this device');
-    return executeHarness(spec,{...options,dataRoot:runtimeDataRoot,legacyDataRoots:[weworkRoot,legacyDataRoot],migrationQuarantineRoot:join(configRoot,'migration-quarantine'),runnerPath,bundledSkillRoots,extensionPath:piExtensionPath,tools:spec.wework?createWeWorkTools(wework,spec,options.signal):[]});
+    return executeHarness(spec,{...options,dataRoot:runtimeDataRoot,legacyDataRoots:[weworkRoot,legacyDataRoot],migrationQuarantineRoot:join(configRoot,'migration-quarantine'),runnerPath,bundledSkillRoots:weworkSkillRoots,harnessSkillsRoot,extensionPath:piExtensionPath,tools:spec.wework?createWeWorkTools(wework,spec,options.signal):[]});
   }),
   onFinish: (spec, result, error) => spec.wework ? wework.finish(spec, result, error) : undefined,
 });
@@ -100,7 +102,7 @@ const services = {
   listSkills: async (request = {}) => {
     const { workspace, skillRoots } = await wework.resolveSkillCatalog(request);
     if (workspace?.kind === 'ssh') return { skills: [], reason: '远程 Workspace Skill 发现尚未接入' };
-    return { skills: await discoverAvailableSkills({ workspaceRoot: workspace.rootPath, skillRoots, bundledRoots: bundledSkillRoots }) };
+    return { skills: await discoverAvailableSkills({ workspaceRoot: workspace.rootPath, skillRoots, bundledRoots: weworkSkillRoots }) };
   },
   currentDirectory: () => directory.currentDirectory(), chooseDirectory: () => directory.chooseDirectory(),
   createCredential: (input) => vault.createCredential(input), listCredentials: () => vault.listCredentials(),
