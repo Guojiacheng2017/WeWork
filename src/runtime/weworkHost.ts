@@ -25,7 +25,7 @@ export type HarnessModel = {
 };
 export type HarnessModelInput = Omit<HarnessModel, 'id' | 'isDefault' | 'createdAt' | 'updatedAt'> & { id?: string };
 export type HarnessModelCatalogResult = { models: HarnessModel[]; defaults: Partial<Record<HarnessId, string>> };
-export type AvailableSkill = { id: string; name: string; description: string; source: 'harness' | 'workspace' };
+export type AvailableSkill = { id: string; name: string; description: string; source: 'harness' | 'wework' | 'workspace' };
 export type DiagnosticEntry = { id: number; time: string; level: 'info' | 'error'; source: string; message: string; details?: Record<string, unknown> };
 export type DiagnosticSnapshot = { status: { host: 'ready' | 'unavailable'; pid: number | null }; entries: DiagnosticEntry[] };
 export type SkillCatalogResult = { skills: AvailableSkill[]; reason?: string };
@@ -37,7 +37,7 @@ export type SkillDiscoveryRequest = WorkspaceAssignment | {
   workspaceAssignment?: WorkspaceAssignment;
 };
 const webDemoSkills: AvailableSkill[] = [
-  { id: 'task-dispatch', name: '任务分解与调度', description: 'Web 预览示例；桌面版会读取当前 Harness 的真实 Skill。', source: 'harness' },
+  { id: 'task-dispatch', name: '任务分解与调度', description: '将目标拆成可交付任务，并明确协作关系与验收条件。', source: 'wework' },
 ];
 
 export interface CredentialVault {

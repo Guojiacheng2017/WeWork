@@ -28,6 +28,26 @@ test('loads only assigned skill IDs inside the team workspace',async()=>{
   assert.deepEqual(result.unloaded.map(item=>item.id),['missing']);
 });
 
+test('workspace overrides business Skills, which override atomic Harness Skills', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'wework-layered-skills-'));
+  const workspace = join(root, 'workspace');
+  const business = join(root, 'business');
+  const harness = join(root, 'harness');
+  for (const directory of [join(workspace, 'skills', 'shared'), join(business, 'shared'), join(business, 'handoff'), join(harness, 'shared'), join(harness, 'atomic')]) await mkdir(directory, { recursive: true });
+  await writeFile(join(workspace, 'skills', 'shared', 'SKILL.md'), '# Workspace Shared');
+  await writeFile(join(business, 'shared', 'SKILL.md'), '# Business Shared');
+  await writeFile(join(business, 'handoff', 'SKILL.md'), '# Business Handoff');
+  await writeFile(join(harness, 'shared', 'SKILL.md'), '# Harness Shared');
+  await writeFile(join(harness, 'atomic', 'SKILL.md'), '# Harness Atomic');
+  const bundledRoots = [{ root: business, source: 'wework' }, { root: harness, source: 'harness' }];
+  const discovered = await discoverAvailableSkills({ workspaceRoot: workspace, bundledRoots });
+  assert.deepEqual(discovered.map(({ id, source }) => ({ id, source })), [{ id: 'shared', source: 'workspace' }, { id: 'handoff', source: 'wework' }, { id: 'atomic', source: 'harness' }]);
+  const loaded = await loadEmployeeSkills([{ id: 'shared', name: 'Shared' }, { id: 'handoff', name: 'Handoff' }, { id: 'atomic', name: 'Atomic' }], { workspaceRoot: workspace, bundledRoots });
+  assert.match(loaded.loaded[0].content, /Workspace Shared/);
+  assert.match(loaded.loaded[1].content, /Business Handoff/);
+  assert.match(loaded.loaded[2].content, /Harness Atomic/);
+});
+
 test('exact canonical Skill roots use employee then team precedence', async () => {
   const root = await mkdtemp(join(tmpdir(), 'wework-canonical-skills-'));
   const employeeRoot = join(root, 'employees', 'employee', 'skills');

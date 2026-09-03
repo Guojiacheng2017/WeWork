@@ -9,14 +9,14 @@ const metadata=(id,content)=>{
   return {name:field('name') ?? title ?? id,description:field('description') ?? ''};
 };
 
-const approvedSkillRoots=({skillRoots=[],workspaceRoot,bundledRoot})=>{
-  const roots=[...skillRoots.map(root=>[root,'workspace']),workspaceRoot&&[join(workspaceRoot,'skills'),'workspace'],bundledRoot&&[bundledRoot,'harness']].filter(Boolean);
+const approvedSkillRoots=({skillRoots=[],workspaceRoot,bundledRoot,bundledRoots=[]})=>{
+  const roots=[...skillRoots.map(root=>[root,'workspace']),workspaceRoot&&[join(workspaceRoot,'skills'),'workspace'],...bundledRoots.map(({root,source})=>[root,source]),bundledRoot&&[bundledRoot,'harness']].filter(Boolean);
   return roots.filter(([root],index)=>roots.findIndex(([candidate])=>candidate===root)===index);
 };
 
-export async function discoverAvailableSkills({workspaceRoot,bundledRoot,skillRoots=[]}) {
+export async function discoverAvailableSkills({workspaceRoot,bundledRoot,bundledRoots=[],skillRoots=[]}) {
   const discovered=[];
-  for(const [root,source] of approvedSkillRoots({skillRoots,workspaceRoot,bundledRoot})) {
+  for(const [root,source] of approvedSkillRoots({skillRoots,workspaceRoot,bundledRoot,bundledRoots})) {
     try {
       const canonicalRoot=await realpath(root);
       for(const entry of await readdir(canonicalRoot,{withFileTypes:true})) {
@@ -34,13 +34,13 @@ export async function discoverAvailableSkills({workspaceRoot,bundledRoot,skillRo
   return discovered.filter((skill,index,all)=>all.findIndex(item=>item.id===skill.id)===index);
 }
 
-export async function loadEmployeeSkills(skills = [], { workspaceRoot, bundledRoot, skillRoots = [] }) {
+export async function loadEmployeeSkills(skills = [], { workspaceRoot, bundledRoot, bundledRoots = [], skillRoots = [] }) {
   const loaded=[],unloaded=[];
   let bytes=0;
   for(const skill of skills) {
     if(!validId.test(skill.id)) {unloaded.push({...skill,reason:'Invalid skill ID'});continue;}
     let content;
-    for(const [root] of approvedSkillRoots({skillRoots,workspaceRoot,bundledRoot})) {
+    for(const [root] of approvedSkillRoots({skillRoots,workspaceRoot,bundledRoot,bundledRoots})) {
       try {
         const canonicalRoot=await realpath(root);
         const file=await realpath(join(root,skill.id,'SKILL.md'));

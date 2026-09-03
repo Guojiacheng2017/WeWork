@@ -35,7 +35,7 @@ export async function executeSmalldashRun(spec, options = {}) {
   const nativeSessionId = spec.session?.nativeSessionId ?? `wework-${createHash('sha256').update(JSON.stringify([spec.employeeId,spec.runtimeProfile.adapter,spec.runtimeProfile.id,spec.session?.id])).digest('hex')}`;
   await migrateLegacySmalldashSession({ sessionId: nativeSessionId, legacyDataRoots: options.legacyDataRoots, targetDataRoot: options.dataRoot, quarantineRoot: options.migrationQuarantineRoot });
   const runnerPath = options.runnerPath ?? fileURLToPath(new URL('../../../smalldashharness/harness/wework-runner.js',import.meta.url));
-  const skills = await loadEmployeeSkills(spec.employee.skills,{workspaceRoot:cwd,skillRoots:spec.skillRoots ?? [],bundledRoot:options.bundledSkillsRoot ?? join(dirname(runnerPath),'skills')});
+  const skills = await loadEmployeeSkills(spec.employee.skills,{workspaceRoot:cwd,skillRoots:spec.skillRoots ?? [],bundledRoots:options.bundledSkillRoots ?? [],bundledRoot:options.bundledSkillsRoot ?? (options.bundledSkillRoots ? undefined : join(dirname(runnerPath),'skills'))});
   const tools = options.tools ?? [];
   options.signal?.throwIfAborted();
   return new Promise((resolve,reject)=>{
