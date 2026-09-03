@@ -41,8 +41,28 @@ export class RemoteSdhClient {
     return payload;
   }
   health() { return this.request('/health'); }
-  models() { return this.request('/api/models'); }
-  saveModel(input) { return this.request('/api/models', { method: 'POST', body: JSON.stringify(input) }); }
+  upstreamHealth() { return this.request('/health/upstream'); }
+  settings() { return this.request('/api/settings'); }
+  async models() {
+    try {
+      const catalog = await this.request('/api/models');
+      if (catalog.models?.length) return catalog;
+    } catch (error) { if (error.status !== 404) throw error; }
+    const [{ settings }, upstream] = await Promise.all([this.settings(), this.upstreamHealth().catch(() => ({ model: false }))]);
+    const modelId = settings?.MODEL_ID ?? settings?.QWEN_MODEL;
+    const baseUrl = settings?.MODEL_BASE_URL ?? settings?.QWEN_API_URL;
+    if (!modelId || !baseUrl) return { models: [], defaultId: null };
+    const id = 'sdh:configured-default'; const now = new Date(0).toISOString();
+    return { defaultId: id, models: [{ id, name: modelId, provider: 'openai-compatible', modelId, baseUrl, authentication: 'none', configured: true, verified: upstream.model === true, isDefault: true, createdAt: now, updatedAt: now }] };
+  }
+  async saveModel(input) {
+    try { return await this.request('/api/models', { method: 'POST', body: JSON.stringify(input) }); }
+    catch (error) {
+      if (error.status !== 404) throw error;
+      await this.request('/api/settings', { method: 'POST', body: JSON.stringify({ settings: { MODEL_BASE_URL: input.baseUrl, MODEL_ID: input.modelId, MODEL_API: 'openai-chat-completions', MODEL_AUTH: 'none' } }) });
+      return { ...input, id: 'sdh:configured-default', configured: true, verified: false, isDefault: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    }
+  }
   probeModel(input) { return this.request('/api/models/probe', { method: 'POST', body: JSON.stringify(input) }); }
-  setDefaultModel(id) { return this.request('/api/models/default', { method: 'POST', body: JSON.stringify({ id }) }); }
+  setDefaultModel(id) { return id === 'sdh:configured-default' ? Promise.resolve({ defaultId: id }) : this.request('/api/models/default', { method: 'POST', body: JSON.stringify({ id }) }); }
 }
