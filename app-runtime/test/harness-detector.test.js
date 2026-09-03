@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { HarnessDetector } from '../src/host/harness-detector.js';
 
-test('installed Pi CLI is execution-ready through its own RPC, auth and model state', async () => {
+test('installed Pi CLI is detected but not exposed as an adapted Harness', async () => {
   const detector = new HarnessDetector({ run: async (file, args) => {
     if (file === 'which' && args[0] === 'pi') return { stdout: '/opt/pi\n' };
     if (file === '/opt/pi' && args[0] === '--version') return { stdout: '0.84.3\n' };
@@ -12,11 +12,11 @@ test('installed Pi CLI is execution-ready through its own RPC, auth and model st
   assert.equal(pi.harness, 'pi');
   assert.equal(pi.kind, 'executable');
   assert.equal(pi.available, true);
-  assert.equal(pi.executionReady, true);
-  assert.equal(pi.weworkToolsReady, true);
-  assert.equal(pi.capabilities.resumeSession, true);
+  assert.equal(pi.executionReady, false);
+  assert.equal(pi.weworkToolsReady, false);
+  assert.equal(pi.capabilities.resumeSession, false);
   assert.equal(pi.executablePath, '/opt/pi');
-  assert.match(pi.reason, /authentication and models are managed by Pi/);
+  assert.match(pi.reason, /only adapts bundled smalldashharness/);
 });
 
 test('external CLI installation is still not confused with WeWork execution readiness', async () => {

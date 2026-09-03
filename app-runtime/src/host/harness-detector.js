@@ -85,8 +85,7 @@ export class HarnessDetector {
       const versionResult = await this.run(executablePath, ['--version'], { timeoutMs: 1500, environment });
       const version = `${versionResult.stdout || versionResult.stderr}`.trim().split(/\r?\n/)[0] || undefined;
       // A successful --version is installation evidence, not protocol/tool support.
-      const ready = spec.harness === 'pi';
-      return { id: `harness:${spec.harness}`, harness: spec.harness, kind: spec.kind, available: true, executionReady: ready, weworkToolsReady: ready, reason: ready ? 'Verified Pi RPC adapter; authentication and models are managed by Pi' : 'Installed; WeWork execution adapter is not yet verified', executablePath, version, capabilities: ready ? CAPABILITIES.pi : {streaming:false,resumeSession:false,cancellation:false,workspace:false,tools:false}, configuration: await this.configuration(spec.harness) };
+      return { id: `harness:${spec.harness}`, harness: spec.harness, kind: spec.kind, available: true, executionReady: false, weworkToolsReady: false, reason: 'Installed; current WeWork release only adapts bundled smalldashharness', executablePath, version, capabilities: {streaming:false,resumeSession:false,cancellation:false,workspace:false,tools:false}, configuration: await this.configuration(spec.harness) };
     } catch {
       return { id: `harness:${spec.harness}`, harness: spec.harness, kind: spec.kind, available: false, executionReady:false, weworkToolsReady:false, capabilities: {streaming:false,resumeSession:false,cancellation:false,workspace:false,tools:false} };
     }

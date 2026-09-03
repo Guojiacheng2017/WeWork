@@ -95,6 +95,14 @@ test('catalog rejects ambiguous credential sources before persistence', async ()
   await assert.rejects(catalog.save({ harness: 'smalldashharness', name: 'Ambiguous', provider: 'openai', modelId: 'x', baseUrl: 'https://models.example/v1', credentialRef: 'vault:model', apiKeyEnv: 'WEWORK_MODEL_API_KEY', verified: false }), (error) => error.code === 'MODEL_INVALID');
 });
 
+test('smalldash OpenAI-compatible catalog accepts only no-credential connections', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'wework-model-catalog-'));
+  const catalog = new HarnessModelCatalog(join(root, 'harness-models.json'));
+  for (const credential of [{ credentialRef: 'vault:model' }, { apiKeyEnv: 'WEWORK_MODEL_API_KEY' }]) {
+    await assert.rejects(catalog.save({ harness: 'smalldashharness', name: 'Authenticated', provider: 'openai', modelId: 'x', baseUrl: 'https://models.example/v1', ...credential }), (error) => error.code === 'MODEL_INVALID');
+  }
+});
+
 test('legacy Renderer-verifiable catalogs are quarantined and demoted until the Host re-probes', async () => {
   const root = await mkdtemp(join(tmpdir(), 'wework-model-catalog-')); const path = join(root, 'harness-models.json');
   const legacy = { schemaVersion: 1, models: [{ id: 'legacy-claim', harness: 'smalldashharness', name: 'Legacy claim', provider: 'openai', modelId: 'x', baseUrl: 'https://models.example/v1', verified: true, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' }], defaults: { smalldashharness: 'legacy-claim' } };

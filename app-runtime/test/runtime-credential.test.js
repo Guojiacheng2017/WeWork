@@ -43,22 +43,27 @@ test('model execution accepts only allowlisted model-key environment names', asy
   }
 });
 
-test('model probing uses the same typed credential authorization boundary', async () => {
-  const authorizations = [];
+test('smalldash model probing rejects credentials and sends no authorization header', async () => {
+  const requests = [];
   const probe = runtimeCredentials.createHarnessModelProbe({
     detectHarnesses: async () => [{ harness: 'smalldashharness', executionReady: true }],
-    vault: { listCredentials: async () => [{ ref: 'vault:ssh', kind: 'ssh-private-key' }, { ref: 'vault:model', kind: 'model-api-key' }], resolveCredential: async (ref) => ref === 'vault:model' ? 'model-secret' : 'ssh-secret' },
-    fetch: async (_url, options) => { authorizations.push(options.headers.authorization); return { ok: true, json: async () => ({ data: [{ id: 'qwen' }] }) }; },
-    environment: { WEWORK_HOST_TOKEN: 'host-secret' },
+    fetch: async (_url, options) => { requests.push(options); return { ok: true, json: async () => ({ data: [{ id: 'qwen' }] }) }; },
   });
   const input = { harness: 'smalldashharness', name: 'Qwen', provider: 'openai', modelId: 'qwen', baseUrl: 'https://models.example/v1', verified: false };
 
-  assert.equal((await probe({ ...input, credentialRef: 'vault:ssh' })).ok, false);
-  assert.equal(authorizations.length, 0);
-  assert.equal((await probe({ ...input, credentialRef: 'vault:model' })).ok, true);
-  assert.deepEqual(authorizations, ['Bearer model-secret']);
-  assert.equal((await probe({ ...input, apiKeyEnv: 'WEWORK_HOST_TOKEN' })).ok, false);
-  assert.deepEqual(authorizations, ['Bearer model-secret']);
+  assert.equal((await probe({ ...input, credentialRef: 'vault:model' })).ok, false);
+  assert.equal(requests.length, 0);
+  assert.equal((await probe(input)).ok, true);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].headers, undefined);
+});
+
+test('smalldash execution never resolves or forwards a model credential', async () => {
+  let executed = false;
+  const execute = withVaultCredential({ listCredentials: async () => assert.fail(), resolveCredential: async () => assert.fail() }, async (_spec, options) => { executed = true; assert.equal(options.apiKey, undefined); return { finalText: 'ok' }; });
+  await execute({ runtimeProfile: { adapter: 'smalldash', model: { baseUrl: 'http://127.0.0.1:8000/v1', modelId: 'qwen' } } }, {});
+  assert.equal(executed, true);
+  await assert.rejects(execute({ runtimeProfile: { adapter: 'smalldash', model: { credentialRef: 'vault:model' } } }, {}), (error) => error.code === 'MODEL_INVALID');
 });
 
 test('verified catalog state is issued only after a Host probe succeeds', async () => {

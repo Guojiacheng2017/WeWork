@@ -1,13 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { isAllowedModelApiKeyEnvironment } from './model-credential-policy.js';
 
 const EMPTY = { schemaVersion: 2, models: [], defaults: {} };
 const WEWORK_MANAGED_HARNESS = 'smalldashharness';
-const MODEL_KEYS = new Set(['id', 'harness', 'name', 'provider', 'modelId', 'api', 'baseUrl', 'credentialRef', 'apiKeyEnv', 'verified', 'createdAt', 'updatedAt']);
-const CREDENTIAL_REF = /^[a-z][a-z0-9_-]{0,31}:[A-Za-z0-9][A-Za-z0-9._-]{0,63}(?:\/[A-Za-z0-9][A-Za-z0-9._-]{0,63}){0,7}$/;
-const ENVIRONMENT_NAME = /^[A-Z_][A-Z0-9_]{0,127}$/;
+const MODEL_KEYS = new Set(['id', 'harness', 'name', 'provider', 'modelId', 'api', 'baseUrl', 'verified', 'createdAt', 'updatedAt']);
 
 const fail = (code, message) => { const error = new Error(message); error.code = code; throw error; };
 const plain = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value) && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
@@ -31,16 +28,6 @@ export const normalizeHarnessModelInput = (input, { persisted = false, verifiedB
     catch { fail('MODEL_INVALID', 'baseUrl is invalid'); }
     model.baseUrl = baseUrl;
   }
-  if (input.credentialRef !== undefined) {
-    const credentialRef = text(input.credentialRef, 'credentialRef', 500);
-    if (!CREDENTIAL_REF.test(credentialRef)) fail('MODEL_INVALID', 'credentialRef is invalid');
-    model.credentialRef = credentialRef;
-  }
-  if (input.apiKeyEnv !== undefined) {
-    if (typeof input.apiKeyEnv !== 'string' || !ENVIRONMENT_NAME.test(input.apiKeyEnv) || !isAllowedModelApiKeyEnvironment(input.apiKeyEnv)) fail('MODEL_INVALID', 'apiKeyEnv is invalid');
-    model.apiKeyEnv = input.apiKeyEnv;
-  }
-  if (model.credentialRef && model.apiKeyEnv) fail('MODEL_INVALID', 'credentialRef and apiKeyEnv are mutually exclusive');
   if (persisted) {
     model.id = text(input.id, 'id', 200);
     model.createdAt = text(input.createdAt, 'createdAt', 100);
