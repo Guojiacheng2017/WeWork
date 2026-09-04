@@ -142,8 +142,24 @@ export const EmployeeWorkbench: React.FC = () => {
               {currentEmployee.activeSession.messages.map((msg) => {
                 const isUser = msg.sender === 'user';
                 const isSystem = msg.sender === 'system';
+                const isThinking = isSystem && msg.id.endsWith('-thinking');
 
                 if (isSystem) {
+                  if (isThinking) {
+                    return (
+                      <details key={msg.id} className="group mx-auto my-2 max-w-[90%] text-[11px] text-slate-400">
+                        <summary className="flex cursor-pointer list-none items-center justify-center gap-1.5 rounded-full border border-slate-200/60 bg-slate-100 px-3 py-1 hover:text-slate-600">
+                          <Activity className="h-3 w-3" />
+                          <span>已思考</span>
+                          <span className="text-[9px] group-open:hidden">查看过程</span>
+                          <span className="hidden text-[9px] group-open:inline">收起过程</span>
+                        </summary>
+                        <div className="mt-2 max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 leading-5 text-slate-500 whitespace-pre-wrap">
+                          {msg.text.replace(/^思考\s*·\s*/, '')}
+                        </div>
+                      </details>
+                    );
+                  }
                   return (
                     <div key={msg.id} className="flex justify-center my-2">
                       <span className="text-[11px] text-slate-400 bg-slate-100 px-3 py-1 rounded-full border border-slate-200/60 flex items-center gap-1.5">
