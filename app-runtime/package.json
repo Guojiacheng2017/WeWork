@@ -6,7 +6,8 @@
   "engines": { "node": ">=22.19.0" },
   "scripts": {
     "start": "node src/host-main.js",
-    "test": "node --test"
+    "test": "node --test",
+    "smoke:pi": "node scripts/smoke-pi.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.84.3",

@@ -19,6 +19,7 @@ import { RemoteSdhClient, SdhConnectionStore } from './host/sdh-connection.js';
 import { discoverAvailableSkills } from './skill-loader.js';
 import { WeWorkWorkspaceLayout } from './host/wework-workspace-layout.js';
 import { resolveWeWorkConfiguration } from './host/wework-configuration.js';
+import { listAvailableHarnessModels, mapSdhModel } from './host/available-harness-models.js';
 
 const weworkRoot = process.env.WEWORK_APP_DATA_DIR ?? join(homedir(), 'Documents', 'WeWork');
 const configRoot = process.env.WEWORK_CONFIG_DIR ?? join(homedir(), 'Documents', '.wework');
@@ -63,11 +64,7 @@ const runtime = new RuntimeManager({
 wework.isEmployeeActive = (employeeId) => [...runtime.active.values()].some((run) => run.employeeId === employeeId);
 const coordinator = new CollaborationCoordinator({wework,runtime});
 wework.attachCoordinator(coordinator);
-const mapSdhModel = ({baseUrl: _internalModelUrl, ...model}) => ({...model,harness:'smalldashharness',api:'openai-completions',source:'harness-discovered'});
-const listHarnessModels = async () => {
-  const result=await sdh.models();
-  return {models:(result.models??[]).map(mapSdhModel),defaults:result.defaultId?{smalldashharness:result.defaultId}:{}};
-};
+const listHarnessModels = () => listAvailableHarnessModels({ detector: harnesses, sdh });
 const probeHarnessModel = async (input) => {
   if(input?.harness!=='smalldashharness') return {ok:false,error:'当前版本仅适配 smalldashharness'};
   const result=await sdh.probeModel({baseUrl:input.baseUrl,modelId:input.modelId});

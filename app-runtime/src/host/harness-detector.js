@@ -84,8 +84,8 @@ export class HarnessDetector {
       if (!executablePath) throw new Error('empty executable path');
       const versionResult = await this.run(executablePath, ['--version'], { timeoutMs: 1500, environment });
       const version = `${versionResult.stdout || versionResult.stderr}`.trim().split(/\r?\n/)[0] || undefined;
-      // A successful --version is installation evidence, not protocol/tool support.
-      return { id: `harness:${spec.harness}`, harness: spec.harness, kind: spec.kind, available: true, executionReady: false, weworkToolsReady: false, reason: 'Installed; current WeWork release only adapts bundled smalldashharness', executablePath, version, capabilities: {streaming:false,resumeSession:false,cancellation:false,workspace:false,tools:false}, configuration: await this.configuration(spec.harness) };
+      const adapted = spec.harness === 'pi';
+      return { id: `harness:${spec.harness}`, harness: spec.harness, kind: spec.kind, available: true, executionReady: adapted, weworkToolsReady: adapted, reason: adapted ? 'Verified through the WeWork Pi RPC adapter' : 'Installed; no verified WeWork execution adapter', executablePath, version, capabilities: adapted ? CAPABILITIES[spec.harness] : {streaming:false,resumeSession:false,cancellation:false,workspace:false,tools:false}, configuration: await this.configuration(spec.harness) };
     } catch {
       return { id: `harness:${spec.harness}`, harness: spec.harness, kind: spec.kind, available: false, executionReady:false, weworkToolsReady:false, capabilities: {streaming:false,resumeSession:false,cancellation:false,workspace:false,tools:false} };
     }

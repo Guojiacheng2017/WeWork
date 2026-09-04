@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
+import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { executePiRun } from '../src/pi-runtime.js';
 
 const spec = (workspace = process.cwd()) => ({ id: 'pi-run', employeeId: 'employee', runtimeProfile: { id: 'pi-config', adapter: 'pi', model: { provider: 'pi', modelId: 'default' }, systemPrompt: 'Be precise.', thinkingLevel: 'medium' }, employee: { displayName: 'Pi Worker', roleName: 'Engineer' }, work: { title: 'Task', goal: 'Finish it' }, workspace: { kind: 'local', rootPath: workspace }, session: { id: 'wework-session' } });
@@ -47,6 +50,22 @@ test('Pi receives global, team and employee WEWORK.md layers as system instructi
   await executePiRun(configured, { executablePath: process.execPath, extensionPath: '/tmp/pi-wework-extension.mjs', spawnProcess: fakeRpc(({ args }) => { captured = args; }) });
   const prompt = captured[captured.indexOf('--append-system-prompt') + 1];
   assert.match(prompt, /Global policy[\s\S]*Team policy[\s\S]*Employee persona[\s\S]*Be precise\./);
+});
+
+test('Pi receives only explicitly assigned WeWork business skills', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'wework-pi-skill-'));
+  const assigned = join(root, 'assigned');
+  const unassigned = join(root, 'unassigned');
+  await mkdir(assigned, { recursive: true }); await mkdir(unassigned, { recursive: true });
+  await writeFile(join(assigned, 'SKILL.md'), '---\nname: Assigned\ndescription: assigned business skill\n---\nASSIGNED_SKILL_BODY');
+  await writeFile(join(unassigned, 'SKILL.md'), '---\nname: Unassigned\ndescription: unassigned business skill\n---\nUNASSIGNED_SKILL_BODY');
+  t.after(() => import('node:fs/promises').then(({ rm }) => rm(root, { recursive: true, force: true })));
+  let captured;
+  const configured = { ...spec(), employee: { displayName: 'Pi Worker', roleName: 'Engineer', skills: [{ id: 'assigned', name: 'Assigned' }] }, skillRoots: [root] };
+  await executePiRun(configured, { executablePath: process.execPath, extensionPath: '/tmp/pi-wework-extension.mjs', spawnProcess: fakeRpc(({ args }) => { captured = args; }) });
+  const prompt = captured[captured.indexOf('--append-system-prompt') + 1];
+  assert.match(prompt, /ASSIGNED_SKILL_BODY/);
+  assert.doesNotMatch(prompt, /UNASSIGNED_SKILL_BODY/);
 });
 
 test('Pi rejects SSH workspace until a remote Pi adapter exists', async () => {

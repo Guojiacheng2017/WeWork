@@ -67,3 +67,19 @@ Database stored in the team's Workspace. Disabling the module unloads its views
 and Agent tools but retains all records. Re-enabling restores them; permanent
 data deletion is a separate confirmed operation in Team Settings. Agent tools
 are derived from the current team's enabled capabilities for every new run.
+
+## Local Pi adapter smoke test
+
+Pi must already be installed and authenticated on the current device. WeWork does not copy or store Pi credentials.
+
+```bash
+npm --workspace wework-app-runtime run smoke:pi
+```
+
+To test an explicit installation:
+
+```bash
+PI_EXECUTABLE=/absolute/path/to/pi npm --workspace wework-app-runtime run smoke:pi
+```
+
+The smoke test creates an isolated temporary workspace, starts a Pi RPC session, calls one read-only WeWork tool, prints a redacted result, and removes the temporary workspace.

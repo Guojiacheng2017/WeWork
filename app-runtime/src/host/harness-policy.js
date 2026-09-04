@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
-const ALLOWED_IDS = new Set(['smalldashharness']);
+const ALLOWED_IDS = new Set(['pi', 'smalldashharness']);
 
 export class HarnessPolicyStore {
   constructor(path) { this.path = path; }
