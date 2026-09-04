@@ -60,7 +60,7 @@ interface WeWorkState {
   completeCurrentWork: (employeeId: string) => void;
   returnCurrentWork: (employeeId: string) => void;
   cancelWork: (workId: string) => Promise<void>;
-  createTeam: (name: string, description: string, leadName: string, leadRole: string, runtime: WeWorkEmployee['runtime'], sessionExecution: SessionExecution, workspaceAssignment?: WorkspaceAssignment) => Promise<void>;
+  createTeam: (name: string, description: string, workspaceAssignment?: WorkspaceAssignment) => Promise<void>;
   archiveTeam: (teamId: string) => Promise<void>;
   restoreTeam: (teamId: string) => Promise<void>;
   deleteTeam: (teamId: string) => Promise<void>;
@@ -305,8 +305,8 @@ export const useWeWorkStore = create<WeWorkState>()((set, get) => ({
     catch (error) { reportError(set, error); }
   },
 
-  createTeam: async (name, description, leadName, leadRole, runtime, sessionExecution, workspaceAssignment) => {
-    await weworkApi.createTeam({ name, description, leadName, leadRole, runtime, sessionExecution, workspaceAssignment }).then(async (team) => {
+  createTeam: async (name, description, workspaceAssignment) => {
+    await weworkApi.createTeam({ name, description, initializeLead: false, workspaceAssignment }).then(async (team) => {
       set({
         selectedTeamId: team.id,
         selectedEmployeeId: team.employees[0]?.id ?? null,

@@ -1,49 +1,18 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { useWeWorkStore } from '../../state/weworkStore';
 import { Folder, FolderOpen, X } from 'lucide-react';
-import { weworkHost, type HarnessId, type HarnessInstallation, type HarnessModel } from '../../runtime/weworkHost';
-import { harnessNames } from '../../runtime/harnessPresentation';
-import { createExecutionForCatalogModel } from '../team/workspaceDraft';
+import { weworkHost } from '../../runtime/weworkHost';
 import type { ResolvedWorkspace } from '../../domain/wework';
 import { projectNameFromWorkspace, projectWorkspaceAssignment } from './projectSelection';
-
-const runtimeFor = (harness: HarnessId): 'Pi' | 'Claude Code' | 'DSH' | 'Workspace' => harness === 'pi' ? 'Pi' : harness === 'claude-code' ? 'Claude Code' : harness === 'smalldashharness' ? 'DSH' : 'Workspace';
 
 export const CreateTeamModal: React.FC = () => {
   const { isCreateTeamOpen, setCreateTeamOpen, createTeam } = useWeWorkStore();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [leadName, setLeadName] = useState('Employee-01 (Leader)');
-  const [leadRole, setLeadRole] = useState('团队负责人 / 调度员');
-  const [installations, setInstallations] = useState<HarnessInstallation[]>([]);
-  const [models, setModels] = useState<HarnessModel[]>([]);
-  const [defaults, setDefaults] = useState<Partial<Record<HarnessId, string>>>({});
-  const [harness, setHarness] = useState<HarnessId>('smalldashharness');
-  const [modelRef, setModelRef] = useState('');
   const [loadError, setLoadError] = useState('');
   const [project, setProject] = useState<ResolvedWorkspace | null>(null);
   const [choosingProject, setChoosingProject] = useState(false);
   const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (!isCreateTeamOpen) return;
-    void Promise.all([weworkHost.harnesses(), weworkHost.harnessPolicy(), weworkHost.harnessModels()]).then(([detected, policy, catalog]) => {
-      const ready = detected.filter((item) => item.executionReady && policy.allowedHarnesses.includes(item.harness));
-      const verified = catalog.models.filter((model) => model.verified && ready.some((item) => item.harness === model.harness));
-      setInstallations(ready);
-      setModels(verified);
-      setDefaults(catalog.defaults);
-      const first = ready.find((item) => verified.some((model) => model.harness === item.harness))?.harness;
-      if (first) { setHarness(first); setLoadError(''); }
-      else setLoadError('没有可用于首位助手的 Harness / 模型，请先到设置中完成设备检测与授权。');
-    }).catch((error) => setLoadError(error instanceof Error ? error.message : String(error)));
-  }, [isCreateTeamOpen]);
-
-  const harnessModels = useMemo(() => models.filter((model) => model.harness === harness), [harness, models]);
-  useEffect(() => {
-    const selected = harnessModels.find((model) => model.id === defaults[harness]) ?? harnessModels[0];
-    setModelRef(selected?.id ?? '');
-  }, [defaults, harness, harnessModels]);
 
   if (!isCreateTeamOpen) return null;
 
@@ -60,11 +29,10 @@ export const CreateTeamModal: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const model = harnessModels.find((item) => item.id === modelRef);
-    if (!name.trim() || !model) return;
+    if (!name.trim()) return;
     setSaving(true); setLoadError('');
     try {
-      await createTeam(name, description, leadName, leadRole, runtimeFor(harness), createExecutionForCatalogModel(model, `team-lead-execution-${crypto.randomUUID()}`), project ? projectWorkspaceAssignment(project) : undefined);
+      await createTeam(name, description, project ? projectWorkspaceAssignment(project) : undefined);
       setName(''); setDescription(''); setProject(null);
     } catch (error) { setLoadError(error instanceof Error ? error.message : String(error)); }
     finally { setSaving(false); }
@@ -81,7 +49,7 @@ export const CreateTeamModal: React.FC = () => {
             </div>
             <div>
               <h3 className="text-sm font-bold text-slate-900">新建助手协同团队</h3>
-              <p className="text-[11px] text-slate-400">初始化独立工作空间与首位 Leader</p>
+              <p className="text-[11px] text-slate-400">创建团队与工作空间</p>
             </div>
           </div>
           <button
@@ -132,50 +100,7 @@ export const CreateTeamModal: React.FC = () => {
             />
           </div>
 
-          <div className="pt-2 border-t border-slate-100">
-            <div className="text-[11px] font-bold text-slate-400 mb-2">首位负责人 (Team Lead)</div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label htmlFor="lead-name" className="block text-[11px] font-medium text-slate-600 mb-1">助手姓名</label>
-                <input
-                  id="lead-name"
-                  name="lead-name"
-                  type="text"
-                  value={leadName}
-                  onChange={(e) => setLeadName(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-800"
-                />
-              </div>
-              <div>
-                <label htmlFor="lead-role" className="block text-[11px] font-medium text-slate-600 mb-1">岗位角色</label>
-                <input
-                  id="lead-role"
-                  name="lead-role"
-                  type="text"
-                  value={leadRole}
-                  onChange={(e) => setLeadRole(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-800"
-                />
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <label htmlFor="team-lead-harness" className="block font-bold text-slate-700 mb-1">首位助手 Harness *</label>
-            <select id="team-lead-harness" value={harness} onChange={(event) => setHarness(event.target.value as HarnessId)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs">
-              <option value="" disabled>选择本机已允许的 Harness</option>
-              {installations.filter((item) => models.some((model) => model.harness === item.harness)).map((item) => <option key={item.id} value={item.harness}>{harnessNames[item.harness]}</option>)}
-            </select>
-          </div>
-
-          <div>
-            <label htmlFor="team-lead-model" className="block font-bold text-slate-700 mb-1">首位助手模型 *</label>
-            <select id="team-lead-model" value={modelRef} onChange={(event) => setModelRef(event.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs">
-              <option value="">选择该 Harness 的可用模型</option>
-              {harnessModels.map((model) => <option key={model.id} value={model.id}>{model.name} · {model.provider}/{model.modelId}{model.id === defaults[harness] ? '（默认）' : ''}</option>)}
-            </select>
-            {loadError && <p role="alert" className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-700">{loadError}</p>}
-          </div>
+          {loadError && <p role="alert" className="rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-700">{loadError}</p>}
 
           {/* Footer Buttons */}
           <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
@@ -188,7 +113,7 @@ export const CreateTeamModal: React.FC = () => {
             </button>
             <button
               type="submit"
-              disabled={!name.trim() || !modelRef || saving}
+              disabled={!name.trim() || saving}
               className="px-4 py-1.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-40 text-white rounded-xl font-semibold transition-colors cursor-pointer shadow-xs"
             >
               {saving ? '创建中…' : '立即创建团队'}

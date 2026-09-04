@@ -285,10 +285,12 @@ def create_app(database_url: str | None = None, artifact_root: Path | None = Non
         team = Team(name=body.name, description=body.description,
                     default_runtime_profile_id=body.defaultRuntimeProfileId,
                     workspace_assignment=normalize_workspace_assignment(body.workspaceAssignment))
-        lead = Employee(team=team, display_name=body.leadName, role_name=body.leadRole, runtime=body.runtime,
-                        default_runtime_profile_id=body.defaultRuntimeProfileId,
-                        color="#C8102E", is_lead=True, skills=[{"id": "skill-core", "name": "团队协同调度与决策"}])
-        session.add_all([team, lead])
+        session.add(team)
+        if body.initializeLead:
+            lead = Employee(team=team, display_name=body.leadName, role_name=body.leadRole, runtime=body.runtime,
+                            default_runtime_profile_id=body.defaultRuntimeProfileId,
+                            color="#C8102E", is_lead=True, skills=[{"id": "skill-core", "name": "团队协同调度与决策"}])
+            session.add(lead)
         session.flush()
         emit(session, "team.created", team.id, {"teamId": team.id})
         session.commit()

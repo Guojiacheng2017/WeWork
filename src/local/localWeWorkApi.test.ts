@@ -55,6 +55,11 @@ describe('local WeWork service', () => {
     expect((await api.snapshot()).teams[0].workspaceAssignment).toEqual({ kind: 'local', rootPath: '/work/vision' });
   });
 
+  it('creates an empty team when leader initialization is disabled', async () => {
+    const team = await createLocalWeWorkApi(storage).createTeam({ name: 'Empty Team', initializeLead: false });
+    expect(team.employees).toEqual([]);
+  });
+
   it('archives and restores a team without losing its history', async () => {
     const api = createLocalWeWorkApi(storage);
     await api.bootstrap(seed);
