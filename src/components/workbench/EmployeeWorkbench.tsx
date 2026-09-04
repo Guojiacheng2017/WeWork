@@ -25,7 +25,7 @@ export const EmployeeWorkbench: React.FC = () => {
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
   const [runtimeEvent, setRuntimeEvent] = useState<RuntimeEvent | null>(null);
   const [isEmployeeConfigOpen, setEmployeeConfigOpen] = useState(false);
-  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(true);
 
   useEffect(() => {
     if (!window.runtimeCoordinator) return;
@@ -35,18 +35,6 @@ export const EmployeeWorkbench: React.FC = () => {
   const currentTeam = teams.find((t) => t.id === selectedTeamId);
   const currentEmployee = currentTeam?.employees.find((b) => b.id === selectedEmployeeId);
   const selectedArtifact = currentEmployee?.artifacts.find((artifact) => artifact.id === selectedArtifactId);
-  const hasDetails = Boolean(currentEmployee && (
-    currentEmployee.currentWorkItem
-    || currentEmployee.activeSession.contextRatio > 0
-    || currentEmployee.activeSession.metrics.length > 0
-    || currentEmployee.builtInSkills.length > 0
-    || currentEmployee.artifacts.length > 0
-    || (currentEmployee.queuedWorkItems?.length ?? 0) > 0
-    || (currentEmployee.completedWorkItems?.length ?? 0) > 0
-  ));
-
-  useEffect(() => { setDetailsOpen(hasDetails); }, [currentEmployee?.id, hasDetails]);
-
   if (!isWorkbenchOpen || !currentEmployee) return null;
 
   const handleSend = (e: React.FormEvent) => {
@@ -108,7 +96,7 @@ export const EmployeeWorkbench: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2">
-            <button type="button" aria-pressed={detailsOpen} onClick={() => setDetailsOpen((open) => !open)} className={`flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold ${detailsOpen ? 'bg-slate-200/70 text-slate-800' : 'text-slate-600 hover:bg-slate-200/60'}`}><Layers className="h-4 w-4" />详情{hasDetails ? '' : '（空）'}</button>
+            <button type="button" aria-pressed={detailsOpen} onClick={() => setDetailsOpen((open) => !open)} className={`flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold ${detailsOpen ? 'bg-slate-200/70 text-slate-800' : 'text-slate-600 hover:bg-slate-200/60'}`}><Layers className="h-4 w-4" />{detailsOpen ? '收起详情' : '展开详情'}</button>
             <button type="button" aria-label={`配置助手 ${currentEmployee.displayName}`} onClick={() => setEmployeeConfigOpen(true)} className="flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-200/60" title="助手配置"><Settings2 className="h-4 w-4" />助手配置</button>
             <button
               type="button"
@@ -251,9 +239,13 @@ export const EmployeeWorkbench: React.FC = () => {
           </div>
 
           {/* Right Column: cards are created only for information the employee has. */}
-          {detailsOpen && <div className="w-5/12 p-5 overflow-y-auto bg-slate-50/40 space-y-5">
+          {detailsOpen && <div className="w-5/12 p-5 overflow-y-auto bg-slate-50/40 space-y-4">
+            <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-xs">
+              <div className="flex items-center justify-between"><h4 className="text-xs font-bold text-slate-800">当前 Session</h4><div className="flex items-center gap-2"><button type="button" onClick={() => setEmployeeConfigOpen(true)} className="text-[9px] font-semibold text-sky-700 hover:underline">修改 Harness / 模型</button><span className={`rounded-full px-2 py-0.5 text-[9px] font-semibold ${currentEmployee.status === 'working' ? 'bg-sky-50 text-sky-700' : 'bg-emerald-50 text-emerald-700'}`}>{currentEmployee.status === 'working' ? '运行中' : '就绪'}</span></div></div>
+              <dl className="mt-3 grid grid-cols-[4.5rem_minmax(0,1fr)] gap-x-3 gap-y-2 text-[10px]"><dt className="text-slate-400">Harness</dt><dd className="font-semibold text-slate-700">{currentEmployee.activeSession.execution?.adapter ?? currentEmployee.runtime}</dd><dt className="text-slate-400">模型</dt><dd className="truncate font-semibold text-slate-700" title={currentEmployee.activeSession.execution?.model.modelId}>{currentEmployee.activeSession.execution?.model.modelId ?? '未配置'}</dd><dt className="text-slate-400">Session ID</dt><dd className="truncate font-mono text-slate-500" title={currentEmployee.activeSession.id}>{currentEmployee.activeSession.id}</dd><dt className="text-slate-400">Workspace</dt><dd className="truncate text-slate-500" title={currentEmployee.workspaceAssignment?.rootPath ?? currentTeam?.workspaceAssignment?.rootPath}>{currentEmployee.workspaceAssignment?.rootPath ?? currentTeam?.workspaceAssignment?.rootPath ?? '团队默认目录'}</dd><dt className="text-slate-400">消息</dt><dd className="text-slate-500">{currentEmployee.activeSession.messages.length} 条</dd></dl>
+            </div>
             {/* 1. Context Gauge Box */}
-            {(currentEmployee.activeSession.contextRatio > 0 || chartData.length > 0) && <div className="bg-white rounded-xl p-3.5 border border-slate-200/80 shadow-xs">
+            <div className="bg-white rounded-xl p-3.5 border border-slate-200/80 shadow-xs">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                   <Activity className="w-4 h-4 text-sky-600" />
@@ -292,10 +284,10 @@ export const EmployeeWorkbench: React.FC = () => {
                   ))}
                 </div>
               )}
-            </div>}
+            </div>
 
             {/* 2. Built-in Skills */}
-            {currentEmployee.builtInSkills.length > 0 && <div className="bg-white rounded-xl p-4 border border-slate-200/80 shadow-xs">
+            <div className="bg-white rounded-xl p-4 border border-slate-200/80 shadow-xs">
               <h4 className="text-xs font-bold text-slate-800 mb-2.5 flex items-center gap-1.5">
                 <Layers className="w-3.5 h-3.5 text-slate-600" />
                 具备内嵌技能 ({currentEmployee.builtInSkills.length})
@@ -310,8 +302,9 @@ export const EmployeeWorkbench: React.FC = () => {
                     {skill.name}
                   </span>
                 ))}
+                {currentEmployee.builtInSkills.length === 0 && <p className="text-[10px] leading-4 text-slate-400">未给该助手分配 WeWork Skill。Harness 自带能力由 Harness 自己管理，不在这里伪装成已分配 Skill。</p>}
               </div>
-            </div>}
+            </div>
 
             {weworkMode === 'local' && currentEmployee.currentWorkItem && <div className="overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-xs"><WorkContextPanel key={currentEmployee.currentWorkItem.id} work={currentEmployee.currentWorkItem} /></div>}
             {((currentEmployee.queuedWorkItems?.length ?? 0) > 0 || (currentEmployee.completedWorkItems?.length ?? 0) > 0) && <div className="bg-white rounded-xl p-4 border border-slate-200/80 shadow-xs">
@@ -321,7 +314,7 @@ export const EmployeeWorkbench: React.FC = () => {
             </div>}
 
             {/* 3. Output Artifacts */}
-            {currentEmployee.artifacts.length > 0 && <div className="bg-white rounded-xl p-4 border border-slate-200/80 shadow-xs">
+            <div className="bg-white rounded-xl p-4 border border-slate-200/80 shadow-xs">
               <h4 className="text-xs font-bold text-slate-800 mb-2.5 flex items-center gap-1.5">
                 <FileCode className="w-3.5 h-3.5 text-slate-600" />
                 产出物与归档 (Artifacts)
@@ -344,9 +337,9 @@ export const EmployeeWorkbench: React.FC = () => {
                       </button>
                     </div>
                   ))}
+                  {currentEmployee.artifacts.length === 0 && <p className="text-[10px] text-slate-400">当前 Session 尚未登记产物。</p>}
               </div>
-            </div>}
-            {!hasDetails && <div className="grid h-full place-items-center text-center"><div><Layers className="mx-auto h-6 w-6 text-slate-300" /><p className="mt-2 text-xs font-semibold text-slate-500">暂无助手详情</p><p className="mt-1 text-[10px] text-slate-400">任务、技能、指标和产物会显示在这里</p></div></div>}
+            </div>
           </div>}
         </div>
       </div>
