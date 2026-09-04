@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Cpu, Download, FolderGit2, Info, KeyRound, MonitorCog, RefreshCw, Settings2, X } from 'lucide-react';
 import { useWeWorkStore } from '../../state/weworkStore';
 import { weworkHost, type CredentialMetadata, type HarnessId, type HarnessInstallation, type HarnessModel, type HarnessModelInput, type SdhConnection, type WeWorkDataInfo } from '../../runtime/weworkHost';
-import { harnessNames, harnessNeedsModel, harnessNeedsServiceUrl, harnessSupportsProfiles } from '../../runtime/harnessPresentation';
+import { harnessCanBeAllowed, harnessNames, harnessNeedsModel, harnessNeedsServiceUrl, harnessSupportsProfiles } from '../../runtime/harnessPresentation';
 import piIcon from '../../assets/harness-icons/pi.svg?no-inline';
 import claudeCodeIcon from '../../assets/harness-icons/claude-code.svg?no-inline';
 import codexIcon from '../../assets/harness-icons/codex.svg?no-inline';
@@ -134,8 +134,7 @@ export function ExecutionSettingsDialog({ onClose, initialSection = 'general' }:
   };
 
   const toggleAllowed = async (installation: HarnessInstallation) => {
-    if (installation.harness !== 'smalldashharness') return;
-    if (!installation.available || !installation.executionReady) return;
+    if (!harnessCanBeAllowed(installation, desktopHostAvailable)) return;
     try {
       const next = allowedHarnesses.includes(installation.harness) ? allowedHarnesses.filter((id) => id !== installation.harness) : [...allowedHarnesses, installation.harness];
       const saved = await weworkHost.setHarnessPolicy(next);
@@ -187,7 +186,7 @@ export function ExecutionSettingsDialog({ onClose, initialSection = 'general' }:
           <div className="mb-3 flex items-center justify-between gap-3"><div><h4 id="local-harnesses" className="text-sm font-bold text-slate-800">可用 Harness</h4><p className="mt-1 text-[11px] text-slate-400">SDH 是远程服务；其他 Harness 仅展示本机探测结果。助手使用哪个 Harness，在助手配置中选择。</p></div><button type="button" disabled={loadingHarnesses || !desktopHostAvailable} onClick={() => void refreshHarnesses()} className="flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-[11px] font-semibold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"><RefreshCw className={`h-3.5 w-3.5 ${loadingHarnesses ? 'animate-spin' : ''}`} />重新检测</button></div>
           <div className="grid grid-cols-2 gap-2">{installations.filter((item) => item.available).map((item) => {
             const allowed = allowedHarnesses.includes(item.harness);
-            const canAllow = Boolean(item.harness === 'smalldashharness' && item.executionReady && desktopHostAvailable);
+            const canAllow = harnessCanBeAllowed(item, desktopHostAvailable);
             const iconSource = harnessIconSources[item.harness];
             return <article key={item.id} className="rounded-xl border border-slate-200 p-3"><div className="flex items-center gap-2"><span className="grid h-8 w-8 shrink-0 place-items-center">{iconSource ? <img src={iconSource} alt="" className="h-6 w-6 object-contain" /> : <Cpu className="h-6 w-6 text-slate-500" />}</span><strong className="flex-1 text-xs text-slate-800">{harnessNames[item.harness]}</strong><span className={`text-[10px] font-semibold ${item.executionReady ? 'text-emerald-600' : 'text-slate-400'}`}>{item.executionReady ? '● 可以运行' : '仅检测到安装'}</span></div><p className="mt-2 truncate text-[10px] text-slate-400">{item.kind === 'embedded' ? 'WeWork 内置' : item.executablePath ?? installHelp[item.harness]}</p>{item.version && <p className="mt-1 text-[9px] text-slate-400">{item.version}{item.reason ? ` · ${item.reason}` : ''}</p>}<div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3"><span className="text-[10px] font-medium text-slate-500">允许助手使用</span><button type="button" role="switch" aria-label={`允许助手使用 ${harnessNames[item.harness]}`} aria-checked={allowed && canAllow} disabled={!canAllow} onClick={() => void toggleAllowed(item)} className={`relative h-5 w-9 rounded-full transition-colors ${allowed && canAllow ? 'bg-emerald-500' : 'bg-slate-200'} disabled:cursor-not-allowed disabled:opacity-60`}><span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${allowed && canAllow ? 'left-[18px]' : 'left-0.5'}`} /></button></div>{!item.executionReady && <p className="mt-2 text-[9px] leading-4 text-slate-400">WeWork 已找到这个命令，但尚未验证启动、消息、工具调用、取消和 Session 恢复，因此暂不能交给助手运行。</p>}</article>;
           })}</div>

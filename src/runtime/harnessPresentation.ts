@@ -11,3 +11,5 @@ export const harnessNames: Record<HarnessId, string> = {
 export const harnessNeedsModel = (_harness: HarnessId) => false;
 export const harnessNeedsServiceUrl = (harness: HarnessId) => harness === 'smalldashharness';
 export const harnessSupportsProfiles = (harness: HarnessId) => harness === 'smalldashharness';
+export const harnessCanBeAllowed = (installation: { available: boolean; executionReady?: boolean }, desktopHostAvailable: boolean) =>
+  desktopHostAvailable && installation.available && installation.executionReady === true;
