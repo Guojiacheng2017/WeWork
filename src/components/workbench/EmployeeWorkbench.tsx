@@ -25,6 +25,7 @@ export const EmployeeWorkbench: React.FC = () => {
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
   const [runtimeEvent, setRuntimeEvent] = useState<RuntimeEvent | null>(null);
   const [isEmployeeConfigOpen, setEmployeeConfigOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   useEffect(() => {
     if (!window.runtimeCoordinator) return;
@@ -34,6 +35,17 @@ export const EmployeeWorkbench: React.FC = () => {
   const currentTeam = teams.find((t) => t.id === selectedTeamId);
   const currentEmployee = currentTeam?.employees.find((b) => b.id === selectedEmployeeId);
   const selectedArtifact = currentEmployee?.artifacts.find((artifact) => artifact.id === selectedArtifactId);
+  const hasDetails = Boolean(currentEmployee && (
+    currentEmployee.currentWorkItem
+    || currentEmployee.activeSession.contextRatio > 0
+    || currentEmployee.activeSession.metrics.length > 0
+    || currentEmployee.builtInSkills.length > 0
+    || currentEmployee.artifacts.length > 0
+    || (currentEmployee.queuedWorkItems?.length ?? 0) > 0
+    || (currentEmployee.completedWorkItems?.length ?? 0) > 0
+  ));
+
+  useEffect(() => { setDetailsOpen(hasDetails); }, [currentEmployee?.id, hasDetails]);
 
   if (!isWorkbenchOpen || !currentEmployee) return null;
 
@@ -96,6 +108,7 @@ export const EmployeeWorkbench: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2">
+            <button type="button" aria-pressed={detailsOpen} onClick={() => setDetailsOpen((open) => !open)} className={`flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold ${detailsOpen ? 'bg-slate-200/70 text-slate-800' : 'text-slate-600 hover:bg-slate-200/60'}`}><Layers className="h-4 w-4" />详情{hasDetails ? '' : '（空）'}</button>
             <button type="button" aria-label={`配置助手 ${currentEmployee.displayName}`} onClick={() => setEmployeeConfigOpen(true)} className="flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-200/60" title="助手配置"><Settings2 className="h-4 w-4" />助手配置</button>
             <button
               type="button"
@@ -111,7 +124,7 @@ export const EmployeeWorkbench: React.FC = () => {
         {/* Content Body */}
         <div className="flex-1 flex overflow-hidden">
           {/* Left Column: Task & Conversation (60%) */}
-          <div className="w-7/12 border-r border-slate-100 flex flex-col bg-white">
+          <div className={`${detailsOpen ? 'w-7/12 border-r' : 'w-full'} border-slate-100 flex flex-col bg-white transition-[width] duration-200`}>
             {/* Active Task Banner if present */}
             {currentEmployee.currentWorkItem && (
               <div className="p-4 bg-sky-50/50 border-b border-sky-100 flex items-start gap-3">
@@ -238,9 +251,9 @@ export const EmployeeWorkbench: React.FC = () => {
           </div>
 
           {/* Right Column: cards are created only for information the employee has. */}
-          <div className="w-5/12 p-5 overflow-y-auto bg-slate-50/40 space-y-5">
+          {detailsOpen && <div className="w-5/12 p-5 overflow-y-auto bg-slate-50/40 space-y-5">
             {/* 1. Context Gauge Box */}
-            <div className="bg-white rounded-xl p-3.5 border border-slate-200/80 shadow-xs">
+            {(currentEmployee.activeSession.contextRatio > 0 || chartData.length > 0) && <div className="bg-white rounded-xl p-3.5 border border-slate-200/80 shadow-xs">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                   <Activity className="w-4 h-4 text-sky-600" />
@@ -279,7 +292,7 @@ export const EmployeeWorkbench: React.FC = () => {
                   ))}
                 </div>
               )}
-            </div>
+            </div>}
 
             {/* 2. Built-in Skills */}
             {currentEmployee.builtInSkills.length > 0 && <div className="bg-white rounded-xl p-4 border border-slate-200/80 shadow-xs">
@@ -300,8 +313,8 @@ export const EmployeeWorkbench: React.FC = () => {
               </div>
             </div>}
 
+            {weworkMode === 'local' && currentEmployee.currentWorkItem && <div className="overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-xs"><WorkContextPanel key={currentEmployee.currentWorkItem.id} work={currentEmployee.currentWorkItem} /></div>}
             {((currentEmployee.queuedWorkItems?.length ?? 0) > 0 || (currentEmployee.completedWorkItems?.length ?? 0) > 0) && <div className="bg-white rounded-xl p-4 border border-slate-200/80 shadow-xs">
-              {weworkMode === 'local' && currentEmployee.currentWorkItem && <WorkContextPanel key={currentEmployee.currentWorkItem.id} work={currentEmployee.currentWorkItem} />}
               <div className="flex items-center justify-between"><h4 className="text-xs font-bold text-slate-800">工作记录</h4><span className="text-[10px] text-slate-400">队列 {currentEmployee.queuedWorkItems?.length ?? 0} · 完成 {currentEmployee.completedWorkItems?.length ?? 0}</span></div>
               {(currentEmployee.queuedWorkItems?.length ?? 0) > 0 && <div className="mt-3 space-y-1.5">{currentEmployee.queuedWorkItems?.map((work, index) => <div key={work.id} className="flex items-center gap-2 rounded-lg bg-amber-50/60 px-2.5 py-2 text-[11px]"><span className="font-mono text-amber-700">#{index + 1}</span><span className="min-w-0 flex-1 truncate font-medium text-slate-700">{work.title}</span><span className="text-amber-700">待执行</span><button type="button" aria-label={`取消 ${work.title}`} onClick={() => { if (window.confirm(`确定取消排队工作“${work.title}”吗？`)) void cancelWork(work.id); }} className="rounded px-1.5 py-1 font-semibold text-rose-500 hover:bg-rose-100">取消</button></div>)}</div>}
               {(currentEmployee.completedWorkItems?.length ?? 0) > 0 && <div className="mt-3 space-y-1.5">{currentEmployee.completedWorkItems?.slice(-3).reverse().map((work) => <div key={work.id} className="flex items-center gap-2 rounded-lg bg-emerald-50/60 px-2.5 py-2 text-[11px]"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /><span className="min-w-0 flex-1 truncate font-medium text-slate-700">{work.title}</span><span className="text-emerald-700">已完成</span></div>)}</div>}
@@ -333,7 +346,8 @@ export const EmployeeWorkbench: React.FC = () => {
                   ))}
               </div>
             </div>}
-          </div>
+            {!hasDetails && <div className="grid h-full place-items-center text-center"><div><Layers className="mx-auto h-6 w-6 text-slate-300" /><p className="mt-2 text-xs font-semibold text-slate-500">暂无助手详情</p><p className="mt-1 text-[10px] text-slate-400">任务、技能、指标和产物会显示在这里</p></div></div>}
+          </div>}
         </div>
       </div>
       {selectedArtifact && (
