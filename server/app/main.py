@@ -283,7 +283,8 @@ def create_app(database_url: str | None = None, artifact_root: Path | None = Non
     def create_team(body: TeamCreate, session: Session = Depends(db)):
         get_runtime_profile(session, body.defaultRuntimeProfileId)
         team = Team(name=body.name, description=body.description,
-                    default_runtime_profile_id=body.defaultRuntimeProfileId)
+                    default_runtime_profile_id=body.defaultRuntimeProfileId,
+                    workspace_assignment=normalize_workspace_assignment(body.workspaceAssignment))
         lead = Employee(team=team, display_name=body.leadName, role_name=body.leadRole, runtime=body.runtime,
                         default_runtime_profile_id=body.defaultRuntimeProfileId,
                         color="#C8102E", is_lead=True, skills=[{"id": "skill-core", "name": "团队协同调度与决策"}])

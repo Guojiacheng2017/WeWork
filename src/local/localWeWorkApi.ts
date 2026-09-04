@@ -175,7 +175,7 @@ export function createLocalWeWorkApi(
     syncWorkspace: async (_request: WorkspaceSyncRequest) => {
       throw Object.assign(new Error('remote workspace sync is not implemented'), { code: 'WORKSPACE_SYNC_UNAVAILABLE' });
     },
-    createTeam: async (input: { name: string; description?: string; leadName?: string; leadRole?: string; runtime?: WeWorkEmployee['runtime']; sessionExecution?: SessionExecution }) => mutate((state) => {
+    createTeam: async (input: { name: string; description?: string; leadName?: string; leadRole?: string; runtime?: WeWorkEmployee['runtime']; sessionExecution?: SessionExecution; workspaceAssignment?: WorkspaceAssignment }) => mutate((state) => {
       const lead: WeWorkEmployee = {
         id: identifier('employee'), displayName: input.leadName || 'Employee-01', roleName: input.leadRole || '团队负责人',
         color: '#C8102E', status: 'idle', runtime: input.runtime || 'Pi', isLead: true, builtInSkills: [],
@@ -183,7 +183,7 @@ export function createLocalWeWorkApi(
         artifacts: [], queuedWorkItems: [], completedWorkItems: [],
       };
       if (input.sessionExecution) lead.activeSession.execution = normalizeSessionExecution(input.sessionExecution);
-      const team: WeWorkTeam = { weworkSessionId: identifier('wework'), id: identifier('team'), name: input.name, description: input.description || '', topology: 'roundTable', employees: [lead], pendingWorks: [], modules: normalizeTeamModules(undefined) };
+      const team: WeWorkTeam = { weworkSessionId: identifier('wework'), id: identifier('team'), name: input.name, description: input.description || '', topology: 'roundTable', employees: [lead], pendingWorks: [], modules: normalizeTeamModules(undefined), workspaceAssignment: normalizeWorkspaceAssignment(input.workspaceAssignment) };
       state.teams.push(team);
       return team;
     }),

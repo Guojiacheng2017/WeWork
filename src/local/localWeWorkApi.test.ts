@@ -48,6 +48,13 @@ describe('local WeWork service', () => {
     expect(team.employees[0].activeSession.execution).toEqual(execution);
   });
 
+  it('creates a project-bound team with the selected workspace in one mutation', async () => {
+    const api = createLocalWeWorkApi(storage);
+    const team = await api.createTeam({ name: 'Vision', workspaceAssignment: { kind: 'local', rootPath: '/work/vision' } });
+    expect(team.workspaceAssignment).toEqual({ kind: 'local', rootPath: '/work/vision' });
+    expect((await api.snapshot()).teams[0].workspaceAssignment).toEqual({ kind: 'local', rootPath: '/work/vision' });
+  });
+
   it('archives and restores a team without losing its history', async () => {
     const api = createLocalWeWorkApi(storage);
     await api.bootstrap(seed);

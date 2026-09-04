@@ -96,6 +96,7 @@ class TeamCreate(BaseModel):
     leadRole: str = "团队负责人"
     runtime: Runtime = "Pi"
     defaultRuntimeProfileId: str | None = None
+    workspaceAssignment: WorkspaceAssignment | None = None
 
 
 class TeamMessageCreate(BaseModel):

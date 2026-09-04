@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useWeWorkStore } from '../../state/weworkStore';
-import { X } from 'lucide-react';
+import { Folder, FolderOpen, X } from 'lucide-react';
 import { weworkHost, type HarnessId, type HarnessInstallation, type HarnessModel } from '../../runtime/weworkHost';
 import { harnessNames } from '../../runtime/harnessPresentation';
 import { createExecutionForCatalogModel } from '../team/workspaceDraft';
+import type { ResolvedWorkspace } from '../../domain/wework';
+import { projectNameFromWorkspace, projectWorkspaceAssignment } from './projectSelection';
 
 const runtimeFor = (harness: HarnessId): 'Pi' | 'Claude Code' | 'DSH' | 'Workspace' => harness === 'pi' ? 'Pi' : harness === 'claude-code' ? 'Claude Code' : harness === 'smalldashharness' ? 'DSH' : 'Workspace';
 
@@ -19,6 +21,9 @@ export const CreateTeamModal: React.FC = () => {
   const [harness, setHarness] = useState<HarnessId>('smalldashharness');
   const [modelRef, setModelRef] = useState('');
   const [loadError, setLoadError] = useState('');
+  const [project, setProject] = useState<ResolvedWorkspace | null>(null);
+  const [choosingProject, setChoosingProject] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!isCreateTeamOpen) return;
@@ -42,13 +47,27 @@ export const CreateTeamModal: React.FC = () => {
 
   if (!isCreateTeamOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const chooseProject = async () => {
+    setChoosingProject(true); setLoadError('');
+    try {
+      const selected = await weworkHost.chooseLocalWorkspace();
+      if (!selected) return;
+      setProject(selected);
+      if (!name.trim()) setName(projectNameFromWorkspace(selected));
+    } catch (error) { setLoadError(error instanceof Error ? error.message : String(error)); }
+    finally { setChoosingProject(false); }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const model = harnessModels.find((item) => item.id === modelRef);
     if (!name.trim() || !model) return;
-    createTeam(name, description, leadName, leadRole, runtimeFor(harness), createExecutionForCatalogModel(model, `team-lead-execution-${crypto.randomUUID()}`));
-    setName('');
-    setDescription('');
+    setSaving(true); setLoadError('');
+    try {
+      await createTeam(name, description, leadName, leadRole, runtimeFor(harness), createExecutionForCatalogModel(model, `team-lead-execution-${crypto.randomUUID()}`), project ? projectWorkspaceAssignment(project) : undefined);
+      setName(''); setDescription(''); setProject(null);
+    } catch (error) { setLoadError(error instanceof Error ? error.message : String(error)); }
+    finally { setSaving(false); }
   };
 
   return (
@@ -77,6 +96,15 @@ export const CreateTeamModal: React.FC = () => {
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-3.5 text-xs">
+          <div>
+            <label className="mb-1 block font-bold text-slate-700">项目</label>
+            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2">
+              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-white text-slate-500"><Folder className="h-4 w-4" /></span>
+              <div className="min-w-0 flex-1"><strong className="block truncate text-xs text-slate-700">{project ? projectNameFromWorkspace(project) : '不关联项目'}</strong><span className="block truncate text-[10px] text-slate-400">{project?.rootPath ?? '可选；团队仍按相同流程创建'}</span></div>
+              {project ? <button type="button" onClick={() => setProject(null)} className="rounded-lg px-2 py-1 text-[10px] font-semibold text-slate-500 hover:bg-white">清除</button> : null}
+              <button type="button" disabled={choosingProject} onClick={() => void chooseProject()} className="flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[10px] font-semibold text-slate-700 disabled:opacity-50"><FolderOpen className="h-3.5 w-3.5" />{choosingProject ? '选择中…' : 'Choose project'}</button>
+            </div>
+          </div>
           <div>
             <label htmlFor="team-name" className="block font-bold text-slate-700 mb-1">团队名称 *</label>
             <input
@@ -160,10 +188,10 @@ export const CreateTeamModal: React.FC = () => {
             </button>
             <button
               type="submit"
-              disabled={!name.trim() || !modelRef}
+              disabled={!name.trim() || !modelRef || saving}
               className="px-4 py-1.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-40 text-white rounded-xl font-semibold transition-colors cursor-pointer shadow-xs"
             >
-              立即创建团队
+              {saving ? '创建中…' : '立即创建团队'}
             </button>
           </div>
         </form>
