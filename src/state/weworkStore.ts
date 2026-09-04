@@ -313,6 +313,8 @@ export const useWeWorkStore = create<WeWorkState>()((set, get) => ({
 
   createTeam: async (name, description, workspaceAssignment) => {
     await weworkApi.createTeam({ name, description, initializeLead: false, workspaceAssignment }).then(async (team) => {
+      window.localStorage.setItem('wework.lastTeamId', team.id);
+      window.localStorage.setItem('wework.lastTopology', 'roundTable');
       set({
         selectedTeamId: team.id,
         selectedEmployeeId: team.employees[0]?.id ?? null,
