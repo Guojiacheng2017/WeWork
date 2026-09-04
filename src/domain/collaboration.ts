@@ -66,7 +66,7 @@ export function normalizeTeamModules(input: unknown): TeamModuleRegistry {
     integration = { ...integration, baseUrl: url.toString().replace(/\/$/, ''), workspaceSlug: integration.workspaceSlug.trim(), projectId: integration.projectId.trim(), credentialRef: integration.credentialRef.trim() };
   }
   const plugins = { ...((input as TeamModuleRegistry).plugins ?? {}) };
-  if (integration && !plugins[PLANE_PLUGIN_ID]) plugins[PLANE_PLUGIN_ID] = { pluginId: PLANE_PLUGIN_ID, version: '0.1.0', enabled: true, permissions: ['network', 'credentials:integration', 'project:read', 'project:write'], configuration: { ...integration } };
+  if (pm.installed && !plugins[PLANE_PLUGIN_ID]) plugins[PLANE_PLUGIN_ID] = { pluginId: PLANE_PLUGIN_ID, version: '0.1.0', enabled: pm.enabled, permissions: ['project:read', 'project:write'], configuration: {} };
   for (const [id, plugin] of Object.entries(plugins)) {
     if (!plugin || plugin.pluginId !== id || typeof plugin.version !== 'string' || typeof plugin.enabled !== 'boolean' || !Array.isArray(plugin.permissions) || !plugin.configuration || typeof plugin.configuration !== 'object') throw new Error('invalid team plugin installation');
   }

@@ -4,7 +4,7 @@ import { hostManagedWeWork, localWeWorkApi, weworkApi, weworkMode } from '../api
 import { publishGroupMessage } from '../runtime/groupMessaging';
 import { LocalRunScheduler } from '../runtime/localRunScheduler';
 import { LoopbackRuntimeEvents, weworkHost, type RuntimeEvent } from '../runtime/weworkHost';
-import { PLANE_PLUGIN_ID, planePluginConfiguration, type CollaborationWorkItem, type ProjectCapability, type TeamModuleRegistry } from '../domain/collaboration';
+import type { CollaborationWorkItem, ProjectCapability, TeamModuleRegistry } from '../domain/collaboration';
 
 const runtimeCapableHost = 'startRun' in weworkHost ? weworkHost : null;
 const runScheduler = runtimeCapableHost ? new LocalRunScheduler({ wework: weworkApi, host: runtimeCapableHost, managedWeWork: hostManagedWeWork, storage: window.localStorage }) : null;
@@ -252,9 +252,9 @@ export const useWeWorkStore = create<WeWorkState>()((set, get) => ({
   setViewMode: (viewMode) => { window.localStorage.setItem('wework.lastViewMode', viewMode); set({ viewMode }); },
   setTopology: (topology) => { window.localStorage.setItem('wework.lastTopology', topology); set({ topology }); },
   configureTeamModules: async (teamId, modules) => { try { await weworkApi.configureTeamModules(teamId, modules); await get().hydrate(); } catch (error) { reportError(set, error); throw error; } },
-  syncPlaneProject: async (teamId) => { try { const configuration=planePluginConfiguration(get().teams.find(team=>team.id===teamId)?.modules); if (!configuration) throw new Error('团队尚未配置 Plane Plugin'); await weworkHost.invokePlugin({teamId,pluginName:PLANE_PLUGIN_ID,tool:'project_sync'}); await get().hydrate(); } catch (error) { reportError(set, error); throw error; } },
-  createProjectWorkItem: async (teamId, title) => { try { const configuration=planePluginConfiguration(get().teams.find(team=>team.id===teamId)?.modules); if (configuration) await weworkHost.invokePlugin({teamId,pluginName:PLANE_PLUGIN_ID,tool:'project_create_work_item',input:{title}}); else await weworkApi.createCollaborationWorkItem(teamId, { projectId: 'project-main', title }); await get().hydrate(); } catch (error) { reportError(set, error); throw error; } },
-  updateProjectWorkItem: async (teamId, workItemId, patch) => { try { const configuration=planePluginConfiguration(get().teams.find(team=>team.id===teamId)?.modules); if (configuration) await weworkHost.invokePlugin({teamId,pluginName:PLANE_PLUGIN_ID,tool:'project_update_work_item',input:{workItemId,patch}}); else await weworkApi.updateCollaborationWorkItem(teamId, workItemId, patch); await get().hydrate(); } catch (error) { reportError(set, error); throw error; } },
+  syncPlaneProject: async () => {},
+  createProjectWorkItem: async (teamId, title) => { try { await weworkApi.createCollaborationWorkItem(teamId, { projectId: 'project-main', title }); await get().hydrate(); } catch (error) { reportError(set, error); throw error; } },
+  updateProjectWorkItem: async (teamId, workItemId, patch) => { try { await weworkApi.updateCollaborationWorkItem(teamId, workItemId, patch); await get().hydrate(); } catch (error) { reportError(set, error); throw error; } },
   deleteProjectData: async (teamId) => { try { await weworkApi.deleteCollaborationDatabase(teamId, { confirm: true }); set({ topology: 'roundTable' }); await get().hydrate(); } catch (error) { reportError(set, error); throw error; } },
   setDraggingWorkItemId: (draggingWorkItemId) => set({ draggingWorkItemId }),
   setDragHoveredEmployeeId: (dragHoveredEmployeeId) => set({ dragHoveredEmployeeId }),

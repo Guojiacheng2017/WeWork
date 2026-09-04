@@ -33,7 +33,7 @@ WeWork Plugin 使用与 Codex Plugin 对齐的包结构和 MCP 传输协议，�
 
 Host 通过 stdio JSON-RPC 完成 `initialize`、`tools/list` 和 `tools/call`。每个工具在 `_meta["wework/permissions"]` 声明调用所需权限。Host 在调用前将它与团队授予列表逐项比对，未授权即拒绝。
 
-凭据只在 WeWork 安全存储中保存。团队配置仅持有 `credentialRef`；Host 在单次 `tools/call` 前解析并注入，插件子进程不会继承宿主的完整环境变量。
+需要外部服务的插件，其凭据只在 WeWork 安全存储中保存。团队配置仅持有 `credentialRef`；Host 在单次 `tools/call` 前解析并注入，插件子进程不会继承宿主的完整环境变量。内置本地插件不应要求 URL 或凭据。
 
 ## 业务数据 adapter
 
@@ -43,4 +43,4 @@ Project Management 插件通过稳定工具名接入 WeWork：
 - `project_create_work_item`：创建事项并返回新快照。
 - `project_update_work_item`：更新事项并返回新快照。
 
-插件负责外部系统与该数据结构之间的转换；WeWork 负责持久化、UI、团队隔离和助手协作。Plane 是首个实现此接口的插件。
+插件负责能力声明和可选外部 adapter；WeWork 负责持久化、UI、团队隔离和助手协作。首个 Project Management Plugin 默认直接使用团队本地 `CollaborationDatabase`，不依赖 Plane 服务；外部 Plane adapter 属于后续可选扩展。

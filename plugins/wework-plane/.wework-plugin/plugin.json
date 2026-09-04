@@ -1,14 +1,14 @@
 {
   "name": "wework-plane",
   "version": "0.1.0",
-  "description": "Connect WeWork to an open-source Plane project through MCP.",
+  "description": "Built-in local project management for WeWork teams.",
   "author": {
     "name": "WeWork"
   },
   "interface": {
-    "displayName": "Plane for WeWork",
-    "shortDescription": "Use Plane projects, work items, boards, and timelines.",
-    "longDescription": "Connect a Plane Cloud or self-hosted project to WeWork through an MCP-based plugin protocol compatible with Codex plugins.",
+    "displayName": "Project Management",
+    "shortDescription": "Local issues, boards, Gantt, timeline, calendar, and DAG.",
+    "longDescription": "Use WeWork's team-local collaboration database directly. No external service URL or account is required.",
     "developerName": "WeWork",
     "category": "Productivity",
     "capabilities": ["Interactive", "Read", "Write"],

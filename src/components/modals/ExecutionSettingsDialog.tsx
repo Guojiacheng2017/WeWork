@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Cpu, Download, FolderGit2, Info, KeyRound, MonitorCog, RefreshCw, Settings2, X } from 'lucide-react';
+import { CheckCircle2, Cpu, Download, FolderGit2, Info, KeyRound, MonitorCog, Puzzle, RefreshCw, Settings2, X } from 'lucide-react';
 import { useWeWorkStore } from '../../state/weworkStore';
-import { weworkHost, type CredentialMetadata, type HarnessId, type HarnessInstallation, type HarnessModel, type HarnessModelInput, type SdhConnection, type WeWorkDataInfo } from '../../runtime/weworkHost';
+import { weworkHost, type CredentialMetadata, type HarnessId, type HarnessInstallation, type HarnessModel, type HarnessModelInput, type PluginManifest, type SdhConnection, type WeWorkDataInfo } from '../../runtime/weworkHost';
 import { harnessCanBeAllowed, harnessNames, harnessNeedsModel, harnessNeedsServiceUrl, harnessSupportsProfiles } from '../../runtime/harnessPresentation';
 import piIcon from '../../assets/harness-icons/pi.svg?no-inline';
 import claudeCodeIcon from '../../assets/harness-icons/claude-code.svg?no-inline';
@@ -25,11 +25,12 @@ const harnessIconSources: Partial<Record<HarnessId, string>> = {
   'gemini-cli': geminiCliIcon,
 };
 
-type SettingsSection = 'general' | 'execution' | 'storage' | 'about';
+type SettingsSection = 'general' | 'execution' | 'plugins' | 'storage' | 'about';
 
 const settingsNavigation: Array<{ id: SettingsSection; label: string; icon: typeof Settings2 }> = [
   { id: 'general', label: '常规', icon: Settings2 },
   { id: 'execution', label: 'Harness', icon: Cpu },
+  { id: 'plugins', label: 'Plugins', icon: Puzzle },
   { id: 'storage', label: '工作区与安全', icon: FolderGit2 },
   { id: 'about', label: '关于平台', icon: Info },
 ];
@@ -53,6 +54,7 @@ export function ExecutionSettingsDialog({ onClose, initialSection = 'general' }:
   const [models, setModels] = useState<HarnessModel[]>([]);
   const [modelDraft, setModelDraft] = useState({ name: '', provider: 'openai-compatible', modelId: '', baseUrl: '' });
   const [sdhConnection, setSdhConnection] = useState<SdhConnection>({ baseUrl: '', configured: false });
+  const [plugins, setPlugins] = useState<PluginManifest[]>([]);
 
   const selectedInstallation = useMemo(() => {
     const found = installations.find((item) => item.harness === harness);
@@ -130,6 +132,7 @@ export function ExecutionSettingsDialog({ onClose, initialSection = 'general' }:
   useEffect(() => {
     if (!desktopHostAvailable) return;
     void weworkHost.dataInfo().then(setDataInfo).catch(() => setDataInfo(null));
+    void weworkHost.plugins().then(setPlugins).catch(() => setPlugins([]));
   }, [desktopHostAvailable]);
 
   const profileUsage = (profileId: string) => teams.flatMap((team) => team.employees).filter((employee) => employee.defaultRuntimeProfileId === profileId).length;
@@ -189,6 +192,7 @@ export function ExecutionSettingsDialog({ onClose, initialSection = 'general' }:
         </aside>
         <main className="min-w-0 flex-1 overflow-y-auto">
           {section === 'storage' && <DataWorkspaceSettings dataInfo={dataInfo} />}
+          {section === 'plugins' && <div className="space-y-5 p-7"><div><h3 className="text-lg font-bold text-slate-900">Plugins</h3><p className="mt-1 text-xs text-slate-400">管理这台设备可供团队启用的 WeWork Plugin。具体启用范围在团队设置中决定。</p></div><div className="space-y-3">{plugins.length ? plugins.map((plugin)=><article key={plugin.name} className="rounded-xl border border-slate-200 bg-white p-5"><div className="flex items-start gap-4"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-sky-50 text-sky-600"><Puzzle className="h-5 w-5"/></span><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><strong className="text-sm text-slate-900">{plugin.interface?.displayName??plugin.name}</strong><span className="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">v{plugin.version}</span><span className="rounded bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">已内置</span></div><p className="mt-1 text-xs leading-5 text-slate-500">{plugin.interface?.shortDescription??plugin.description}</p><p className="mt-2 font-mono text-[10px] text-slate-400">{plugin.name} · .wework-plugin</p></div></div></article>) : <div className="rounded-xl border border-dashed border-slate-200 p-8 text-center text-xs text-slate-400">{desktopHostAvailable?'没有发现 Plugin':'Plugin 目录需要 Desktop Host'}</div>}</div></div>}
           {section === 'execution' && <div className="space-y-5 p-7">
             <div><h3 className="text-lg font-bold text-slate-900">Harness</h3><p className="mt-1 text-xs text-slate-400">这里只决定哪些 Harness 可以分配给助手，可同时开启多个；每位助手实际使用哪一个，在助手配置中选择。</p></div>
         <section aria-labelledby="local-harnesses">
