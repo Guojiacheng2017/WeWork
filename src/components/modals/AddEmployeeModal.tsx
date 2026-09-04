@@ -45,7 +45,8 @@ export const AddEmployeeModal: React.FC = () => {
     if (!displayName.trim() || !roleName.trim() || !model || saving) return;
     setSaving(true); setLoadError('');
     try { await addEmployee(selectedTeamId, displayName, roleName, runtime, createExecutionForCatalogModel(model)); }
-    catch (error) { setLoadError(error instanceof Error ? error.message : String(error)); setSaving(false); }
+    catch (error) { setLoadError(error instanceof Error ? error.message : String(error)); }
+    finally { setSaving(false); }
   };
 
   return (

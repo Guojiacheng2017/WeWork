@@ -202,8 +202,14 @@ export const useWeWorkStore = create<WeWorkState>()((set, get) => ({
       set((state) => ({ teams: state.teams.map((team) => ({ ...team, employees: team.employees.map((employee) => {
         if (employee.id !== employeeId) return employee;
         const label = event.activity === 'thinking' ? '思考' : event.activity === 'tool' ? '工具' : '状态';
-        const messageId = `runtime-${event.runId}-${event.activity}-${employee.activeSession.messages.length}`;
-        return { ...employee, activeSession: { ...employee.activeSession, updatedAt: '刚刚', messages: [...employee.activeSession.messages, { id: messageId, sender: 'system' as const, senderName: employee.displayName, text: `${label} · ${event.text}`, time: '刚刚' }] } };
+        const messageId = event.activity === 'thinking'
+          ? `runtime-${event.runId}-thinking`
+          : `runtime-${event.runId}-${event.activity}-${employee.activeSession.messages.length}`;
+        const existing = employee.activeSession.messages.find((message) => message.id === messageId);
+        const messages = existing
+          ? employee.activeSession.messages.map((message) => message.id === messageId ? { ...message, text: `${label} · ${message.text.slice(label.length + 3)}${event.text}` } : message)
+          : [...employee.activeSession.messages, { id: messageId, sender: 'system' as const, senderName: employee.displayName, text: `${label} · ${event.text}`, time: '刚刚' }];
+        return { ...employee, activeSession: { ...employee.activeSession, updatedAt: '刚刚', messages } };
       }) })) }));
       return;
     }

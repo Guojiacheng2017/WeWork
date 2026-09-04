@@ -19,6 +19,18 @@ test('Host refuses to archive or delete a team while one of its employees is run
   assert.equal((await wework.api.snapshot()).teams[0].archivedAt, undefined);
 });
 
+test('slow employee workspace initialization does not leave onboarding stuck', async () => {
+  const never = new Promise(() => {});
+  const workspaceLayout = { ensureEmployee: () => never };
+  let state = null;
+  const storage = { getItem: () => state, setItem: (_key, value) => { state = value; } };
+  const wework = new WeWorkService(storage, { workspaceLayout, workspaceInitializationTimeoutMs: 5 });
+  const team = await wework.api.createTeam({ name: 'Empty', initializeLead: false });
+  const employee = await wework.call('addEmployee', [team.id, { displayName: 'Adam', roleName: 'Product Manager', runtime: 'Pi' }]);
+  assert.equal(employee.displayName, 'Adam');
+  assert.equal((await wework.api.snapshot()).teams[0].employees.length, 1);
+});
+
 test('prepares a run from the team workspace with global, team and employee configuration layers', async (t) => {
   const documents = await mkdtemp(join(tmpdir(), 'wework-service-workspace-')); t.after(() => rm(documents, { recursive: true, force: true }));
   const weworkRoot = join(documents, 'WeWork'); const configRoot = join(documents, '.wework');

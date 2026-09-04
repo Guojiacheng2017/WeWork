@@ -71,6 +71,7 @@ export class WeWorkService {
     this.configurationResolver = options.configurationResolver;
     this.currentWorkspace = options.currentWorkspace;
     this.listCredentials = options.listCredentials;
+    this.workspaceInitializationTimeoutMs = options.workspaceInitializationTimeoutMs ?? 5000;
   }
   attachCoordinator(coordinator) { this.coordinator = coordinator; }
   async reconcileWorkspaces() {
@@ -125,7 +126,14 @@ export class WeWorkService {
       const state = await this.api.snapshot();
       const team = state.teams.find((candidate) => candidate.id === args[0]);
       if (!team) throw new Error('team not found after employee creation');
-      await this.workspaceLayout.ensureEmployee(team, result);
+      const initialization = this.workspaceLayout.ensureEmployee(team, result);
+      await Promise.race([
+        initialization,
+        new Promise((resolve) => setTimeout(resolve, this.workspaceInitializationTimeoutMs)),
+      ]);
+      // Workspace initialization is idempotent. If slow filesystem I/O outlives the
+      // UI request, let it finish in the background; run preparation verifies it again.
+      void initialization.catch((error) => console.error('Employee workspace initialization failed:', error));
     }
     if (this.workspaceLayout && ['bootstrap', 'importLocalState'].includes(method) && result?.imported) await this.reconcileWorkspaces();
     if (['postGroupMessage', 'retryGroupDelivery'].includes(method)) void this.coordinator?.drain().catch(() => {});
