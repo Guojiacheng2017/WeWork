@@ -6,6 +6,16 @@ export type TeamModuleRegistry = {
     installed: boolean; enabled: boolean; capabilities: ProjectCapability[];
     integration?: { provider: 'plane'; baseUrl: string; workspaceSlug: string; projectId: string; credentialRef: string; lastSyncedAt?: string };
   };
+  plugins?: Record<string, TeamPluginInstallation>;
+};
+export type PluginPermission = 'network' | 'credentials:integration' | 'project:read' | 'project:write';
+export type TeamPluginInstallation = { pluginId: string; version: string; enabled: boolean; permissions: PluginPermission[]; configuration: Record<string, unknown> };
+export const PLANE_PLUGIN_ID = 'wework-plane';
+export type PlanePluginConfiguration = { baseUrl: string; workspaceSlug: string; projectId: string; credentialRef: string; lastSyncedAt?: string };
+export const planePluginConfiguration = (modules?: TeamModuleRegistry): PlanePluginConfiguration | undefined => {
+  const value = modules?.plugins?.[PLANE_PLUGIN_ID]?.configuration;
+  if (value) return value as PlanePluginConfiguration;
+  return modules?.projectManagement.integration;
 };
 
 export type CollaborationProject = { id: string; name: string; description: string; createdAt: string; updatedAt: string };
@@ -55,7 +65,12 @@ export function normalizeTeamModules(input: unknown): TeamModuleRegistry {
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('invalid Plane base URL');
     integration = { ...integration, baseUrl: url.toString().replace(/\/$/, ''), workspaceSlug: integration.workspaceSlug.trim(), projectId: integration.projectId.trim(), credentialRef: integration.credentialRef.trim() };
   }
-  return { projectManagement: { installed: pm.installed, enabled: pm.enabled, capabilities: [...new Set(pm.capabilities)], ...(integration ? { integration } : {}) } };
+  const plugins = { ...((input as TeamModuleRegistry).plugins ?? {}) };
+  if (integration && !plugins[PLANE_PLUGIN_ID]) plugins[PLANE_PLUGIN_ID] = { pluginId: PLANE_PLUGIN_ID, version: '0.1.0', enabled: true, permissions: ['network', 'credentials:integration', 'project:read', 'project:write'], configuration: { ...integration } };
+  for (const [id, plugin] of Object.entries(plugins)) {
+    if (!plugin || plugin.pluginId !== id || typeof plugin.version !== 'string' || typeof plugin.enabled !== 'boolean' || !Array.isArray(plugin.permissions) || !plugin.configuration || typeof plugin.configuration !== 'object') throw new Error('invalid team plugin installation');
+  }
+  return { projectManagement: { installed: pm.installed, enabled: pm.enabled, capabilities: [...new Set(pm.capabilities)] }, plugins };
 }
 
 export function createCollaborationDatabase(timestamp: string): CollaborationDatabase {

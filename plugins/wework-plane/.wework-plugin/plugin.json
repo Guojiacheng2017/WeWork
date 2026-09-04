@@ -1,0 +1,18 @@
+{
+  "name": "wework-plane",
+  "version": "0.1.0",
+  "description": "Connect WeWork to an open-source Plane project through MCP.",
+  "author": {
+    "name": "WeWork"
+  },
+  "interface": {
+    "displayName": "Plane for WeWork",
+    "shortDescription": "Use Plane projects, work items, boards, and timelines.",
+    "longDescription": "Connect a Plane Cloud or self-hosted project to WeWork through an MCP-based plugin protocol compatible with Codex plugins.",
+    "developerName": "WeWork",
+    "category": "Productivity",
+    "capabilities": ["Interactive", "Read", "Write"],
+    "defaultPrompt": ["Show the project work items.", "Create a project work item.", "Update the project board."]
+  },
+  "mcpServers": "./.mcp.json"
+}

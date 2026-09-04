@@ -1,0 +1,5 @@
+{
+  "mcpServers": {
+    "plane": { "command": "node", "args": ["./server.mjs"] }
+  }
+}

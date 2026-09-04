@@ -60,7 +60,7 @@ const uiMethods = new Set([
   'getWorkflow', 'saveWorkflow', 'sendMessage', 'sendAssistantMessage', 'sendTeamMessage',
   'getWorkContext', 'readTaskField', 'readWorkDocument', 'saveWorkDocument', 'reportProgress', 'submitDeliverable',
   'reviewDeliverable', 'getWorkRecords', 'postGroupMessage', 'retryGroupDelivery', 'cancelGroupDelivery', 'requestHandoff', 'decideHandoff', 'getGroupContext', 'readGroupMessage',
-  'configureTeamModules', 'createCollaborationWorkItem', 'updateCollaborationWorkItem', 'deleteCollaborationDatabase', 'replaceCollaborationDatabase',
+  'configureTeamModules', 'createCollaborationWorkItem', 'updateCollaborationWorkItem', 'deleteCollaborationDatabase',
 ]);
 
 export class WeWorkService {

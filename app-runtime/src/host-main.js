@@ -20,7 +20,7 @@ import { discoverAvailableSkills } from './skill-loader.js';
 import { WeWorkWorkspaceLayout } from './host/wework-workspace-layout.js';
 import { resolveWeWorkConfiguration } from './host/wework-configuration.js';
 import { listAvailableHarnessModels, mapSdhModel } from './host/available-harness-models.js';
-import { PlaneClient } from './host/plane-client.js';
+import { PluginRegistry } from './host/plugin-registry.js';
 
 const weworkRoot = process.env.WEWORK_APP_DATA_DIR ?? join(homedir(), 'Documents', 'WeWork');
 const configRoot = process.env.WEWORK_CONFIG_DIR ?? join(homedir(), 'Documents', '.wework');
@@ -37,6 +37,7 @@ const bundledSkillRoots = process.env.WEWORK_SKILLS_DIR
     ? [{ root: join(dirname(process.argv[1]), 'skills', 'wework'), source: 'wework' }]
     : [{ root: resolve(dirname(process.argv[1]), '../skills'), source: 'wework' }];
 const weworkSkillRoots = bundledSkillRoots.filter(({ source }) => source === 'wework');
+const pluginRoots = process.env.WEWORK_PLUGINS_DIR ? [process.env.WEWORK_PLUGINS_DIR] : [process.argv[1].endsWith('.cjs') ? join(dirname(process.argv[1]), 'plugins') : resolve(dirname(process.argv[1]), '../../plugins')];
 const piExtensionPath = process.env.WEWORK_PI_EXTENSION_PATH ?? join(dirname(process.argv[1]), 'pi-wework-extension.mjs');
 const harnesses = new HarnessDetector();
 const sdhConnection = new SdhConnectionStore(join(configRoot, 'smalldashharness.json'));
@@ -76,16 +77,7 @@ const saveHarnessModel = async (input) => {
   const saved=await sdh.saveModel({name:input.name,provider:'openai-compatible',modelId:input.modelId,baseUrl:input.baseUrl,contextWindow:input.contextWindow,maxTokens:input.maxTokens,authentication:'none'});
   return mapSdhModel(saved.model??saved);
 };
-const planeClient = async (input) => {
-  const credential = (await vault.listCredentials()).find((item) => item.ref === input.credentialRef);
-  if (!credential || credential.kind !== 'integration-api-key') throw Object.assign(new Error('Plane API Key 引用不存在'), { code: 'CREDENTIAL_MISSING' });
-  return new PlaneClient({ ...input, apiKey: await vault.resolveCredential(input.credentialRef) });
-};
-const syncPlaneProject = async (input) => {
-  const client = await planeClient(input); const database = await client.snapshot();
-  await wework.call('replaceCollaborationDatabase', [input.teamId, database]);
-  return { syncedAt: new Date().toISOString() };
-};
+const plugins = new PluginRegistry({ vault, wework, roots: pluginRoots });
 const services = {
   weworkCall: (method, args) => wework.call(method, args),
   dataInfo: () => ({ rootPath: weworkRoot, configPath: configRoot, teamsPath: weworkRoot, runtimePath: join(configRoot, 'runtime'), platform: process.platform }),
@@ -110,9 +102,7 @@ const services = {
   },
   currentDirectory: () => directory.currentDirectory(), chooseDirectory: () => directory.chooseDirectory(),
   createCredential: (input) => vault.createCredential(input), listCredentials: () => vault.listCredentials(),
-  syncPlaneProject,
-  createPlaneWorkItem: async (input) => { const client = await planeClient(input); await client.createWorkItem(input.title); return syncPlaneProject(input); },
-  updatePlaneWorkItem: async (input) => { const client = await planeClient(input); await client.updateWorkItem(input.workItemId, input.patch); return syncPlaneProject(input); },
+  listPlugins: () => plugins.discover(), invokePlugin: (input) => plugins.invoke(input),
   probeSshWorkspace: createSshWorkspaceProbe({ vault, ssh }),
   runtime: { start: async (spec) => spec.weworkManaged ? wework.startRun(spec,runtime) : wework.startExternalRun(spec,runtime), get: (id) => runtime.get(id), cancel: (id) => runtime.cancelAndWait(id) },
 };
