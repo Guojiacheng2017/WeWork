@@ -2,7 +2,6 @@ import { create } from 'zustand';
 import { WeWorkTeam, WeWorkEmployee, WorkItem, TeamView, RoleNode, RuntimeProfile, SessionExecution, WorkflowTemplate, WorkspaceAssignment } from '../domain/wework';
 import { hostManagedWeWork, localWeWorkApi, weworkApi, weworkMode } from '../api/weworkApi';
 import { publishGroupMessage } from '../runtime/groupMessaging';
-import { initialTeams } from '../data/mockData';
 import { LocalRunScheduler } from '../runtime/localRunScheduler';
 import { LoopbackRuntimeEvents, weworkHost, type RuntimeEvent } from '../runtime/weworkHost';
 import type { CollaborationWorkItem, ProjectCapability, TeamModuleRegistry } from '../domain/collaboration';
@@ -137,11 +136,7 @@ export const useWeWorkStore = create<WeWorkState>()((set, get) => ({
 
   hydrate: async () => {
     try {
-      let [snapshot, runtimeProfileResult] = await Promise.all([weworkApi.snapshot({ includeArchived: true }), weworkApi.listRuntimeProfiles()]);
-      if (snapshot.teams.length === 0) {
-        await weworkApi.bootstrap(initialTeams);
-        snapshot = await weworkApi.snapshot({ includeArchived: true });
-      }
+      const [snapshot, runtimeProfileResult] = await Promise.all([weworkApi.snapshot({ includeArchived: true }), weworkApi.listRuntimeProfiles()]);
       const activeTeams = snapshot.teams.filter((team) => !team.archivedAt);
       const archivedTeams = snapshot.teams.filter((team) => team.archivedAt);
       const restoreWorkspace = restoreWorkspacePreference();

@@ -37,10 +37,6 @@ export type SkillDiscoveryRequest = WorkspaceAssignment | {
   inheritTeam?: boolean;
   workspaceAssignment?: WorkspaceAssignment;
 };
-const webDemoSkills: AvailableSkill[] = [
-  { id: 'task-dispatch', name: '任务分解与调度', description: '将目标拆成可交付任务，并明确协作关系与验收条件。', source: 'wework' },
-];
-
 export interface CredentialVault {
   create(input: { label: string; kind: CredentialKind; secret: string }): Promise<string>;
   list(): Promise<CredentialMetadata[]>;
@@ -93,7 +89,7 @@ export class WeWorkHost {
   harnessModels(): Promise<HarnessModelCatalogResult> { return Promise.resolve({ models: [], defaults: {} }); }
   sdhConnection(): Promise<SdhConnection> { return Promise.resolve({ baseUrl: '', configured: false }); }
   setSdhConnection(_baseUrl: string): Promise<SdhConnection> { return Promise.reject(new WeWorkHostError('HOST_UNAVAILABLE','远程 Harness 配置需要 Desktop Host')); }
-  skills(_assignment?: SkillDiscoveryRequest): Promise<SkillCatalogResult> { return Promise.resolve({ skills: webDemoSkills, reason: 'Web 演示模式仅展示 WeWork 示例；Workspace Skill 扫描需要 Desktop Host' }); }
+  skills(_assignment?: SkillDiscoveryRequest): Promise<SkillCatalogResult> { return Promise.resolve({ skills: [], reason: '浏览器模式无法扫描本机或 Workspace Skill；请使用 Desktop Host' }); }
   dataInfo(): Promise<WeWorkDataInfo> { return Promise.reject(new WeWorkHostError('HOST_UNAVAILABLE','数据目录需要 Desktop Host')); }
   setHarnessPolicy(_allowedHarnesses: HarnessId[]): Promise<{allowedHarnesses: HarnessId[]}> { return Promise.reject(new WeWorkHostError('HOST_UNAVAILABLE','设备策略需要 Desktop Host')); }
   saveHarnessModel(_input: HarnessModelInput): Promise<HarnessModel> { return Promise.reject(new WeWorkHostError('HOST_UNAVAILABLE','模型目录需要 Desktop Host')); }

@@ -67,10 +67,8 @@ persisted by `wework-server`.
 Schema changes must be applied through Alembic. SQLite and local filesystem
 storage are development/test fallbacks only.
 
-On the first browser connection, an entirely empty WeWork database accepts a
-one-time bootstrap import from `wework/src/data/mockData.ts`. The
-endpoint becomes a no-op as soon as any team exists, so later restarts and UI
-sessions cannot overwrite persisted user data.
+An empty WeWork database remains empty until the user creates or imports a team.
+The browser does not seed demonstration teams into persisted user data.
 
 ## Workflow concurrency contract
 
