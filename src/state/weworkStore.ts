@@ -79,6 +79,7 @@ interface WeWorkState {
   sendTeamMessage: (teamId: string, text: string, recipientId?: string, contextTagIds?: string[]) => Promise<void>;
   cancelGroupDelivery: (teamId:string,deliveryId:string)=>Promise<void>;
   configureTeamModules: (teamId: string, modules: TeamModuleRegistry) => Promise<void>;
+  syncPlaneProject: (teamId: string) => Promise<void>;
   createProjectWorkItem: (teamId: string, title: string) => Promise<void>;
   updateProjectWorkItem: (teamId: string, workItemId: string, patch: Partial<CollaborationWorkItem>) => Promise<void>;
   deleteProjectData: (teamId: string) => Promise<void>;
@@ -251,8 +252,9 @@ export const useWeWorkStore = create<WeWorkState>()((set, get) => ({
   setViewMode: (viewMode) => { window.localStorage.setItem('wework.lastViewMode', viewMode); set({ viewMode }); },
   setTopology: (topology) => { window.localStorage.setItem('wework.lastTopology', topology); set({ topology }); },
   configureTeamModules: async (teamId, modules) => { try { await weworkApi.configureTeamModules(teamId, modules); await get().hydrate(); } catch (error) { reportError(set, error); throw error; } },
-  createProjectWorkItem: async (teamId, title) => { try { await weworkApi.createCollaborationWorkItem(teamId, { projectId: 'project-main', title }); await get().hydrate(); } catch (error) { reportError(set, error); throw error; } },
-  updateProjectWorkItem: async (teamId, workItemId, patch) => { try { await weworkApi.updateCollaborationWorkItem(teamId, workItemId, patch); await get().hydrate(); } catch (error) { reportError(set, error); throw error; } },
+  syncPlaneProject: async (teamId) => { try { const integration = get().teams.find((team) => team.id === teamId)?.modules?.projectManagement.integration; if (!integration) throw new Error('团队尚未配置 Plane'); await weworkHost.syncPlaneProject({ teamId, ...integration }); await get().hydrate(); } catch (error) { reportError(set, error); throw error; } },
+  createProjectWorkItem: async (teamId, title) => { try { const integration = get().teams.find((team) => team.id === teamId)?.modules?.projectManagement.integration; if (integration) await weworkHost.createPlaneWorkItem({ teamId, ...integration, title }); else await weworkApi.createCollaborationWorkItem(teamId, { projectId: 'project-main', title }); await get().hydrate(); } catch (error) { reportError(set, error); throw error; } },
+  updateProjectWorkItem: async (teamId, workItemId, patch) => { try { const integration = get().teams.find((team) => team.id === teamId)?.modules?.projectManagement.integration; if (integration) await weworkHost.updatePlaneWorkItem({ teamId, ...integration, workItemId, patch }); else await weworkApi.updateCollaborationWorkItem(teamId, workItemId, patch); await get().hydrate(); } catch (error) { reportError(set, error); throw error; } },
   deleteProjectData: async (teamId) => { try { await weworkApi.deleteCollaborationDatabase(teamId, { confirm: true }); set({ topology: 'roundTable' }); await get().hydrate(); } catch (error) { reportError(set, error); throw error; } },
   setDraggingWorkItemId: (draggingWorkItemId) => set({ draggingWorkItemId }),
   setDragHoveredEmployeeId: (dragHoveredEmployeeId) => set({ dragHoveredEmployeeId }),

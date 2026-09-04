@@ -225,6 +225,7 @@ function TeamSettingsView({ team }: { team: WeWorkTeam }) {
   const updateTeamWorkspace = useWeWorkStore((state) => state.updateTeamWorkspace);
   const archiveTeam = useWeWorkStore((state) => state.archiveTeam);
   const configureTeamModules = useWeWorkStore((state) => state.configureTeamModules);
+  const syncPlaneProject = useWeWorkStore((state) => state.syncPlaneProject);
   const deleteProjectData = useWeWorkStore((state) => state.deleteProjectData);
   const module = team.modules?.projectManagement ?? { installed: false, enabled: false, capabilities: [] as ProjectCapability[] };
   const configure = (patch: Partial<typeof module>) => configureTeamModules(team.id, { projectManagement: { ...module, ...patch } });
@@ -233,10 +234,13 @@ function TeamSettingsView({ team }: { team: WeWorkTeam }) {
   const persistedPath = team.workspaceAssignment?.kind === 'local' ? team.workspaceAssignment.rootPath ?? '' : '';
   const [localPath, setLocalPath] = useState(persistedPath || `Documents/WeWork/${team.id}`);
   const [message, setMessage] = useState(''); const [saving, setSaving] = useState(false);
+  const [planeDraft, setPlaneDraft] = useState(() => ({ baseUrl: module.integration?.baseUrl ?? '', workspaceSlug: module.integration?.workspaceSlug ?? '', projectId: module.integration?.projectId ?? '', apiKey: '' }));
+  const [planeBusy, setPlaneBusy] = useState(false);
   const [choosing, setChoosing] = useState(false);
   useEffect(() => {
     setLocalPath(persistedPath || `${weworkRoot.replace(/[\\/]$/, '')}/${team.id}`);
     setMessage('');
+    setPlaneDraft({ baseUrl: module.integration?.baseUrl ?? '', workspaceSlug: module.integration?.workspaceSlug ?? '', projectId: module.integration?.projectId ?? '', apiKey: '' });
   }, [team.id, persistedPath]);
   useEffect(() => {
     void weworkHost.dataInfo().then((info) => {
@@ -257,8 +261,24 @@ function TeamSettingsView({ team }: { team: WeWorkTeam }) {
   const defaultTeamPath = `${weworkRoot.replace(/[\\/]$/, '')}/${team.id}`;
   const effectiveTeamPath = localPath.trim() || defaultTeamPath;
   const defaultEmployeePath = `${effectiveTeamPath}/employees/<employee-id>`;
+  const connectPlane = async () => {
+    setPlaneBusy(true); setMessage('');
+    try {
+      const credentialRef = planeDraft.apiKey.trim()
+        ? await weworkHost.createCredential({ label: `Plane · ${team.name}`, kind: 'integration-api-key', secret: planeDraft.apiKey.trim() })
+        : module.integration?.credentialRef;
+      if (!credentialRef) throw new Error('首次连接需要填写 Plane API Key');
+      const integration = { provider: 'plane' as const, baseUrl: planeDraft.baseUrl.trim(), workspaceSlug: planeDraft.workspaceSlug.trim(), projectId: planeDraft.projectId.trim(), credentialRef };
+      await configureTeamModules(team.id, { projectManagement: { ...module, installed: true, enabled: true, integration } });
+      await weworkHost.syncPlaneProject({ teamId: team.id, ...integration });
+      await useWeWorkStore.getState().hydrate();
+      setPlaneDraft((value) => ({ ...value, apiKey: '' })); setMessage('Plane 已连接并同步');
+    } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
+    finally { setPlaneBusy(false); }
+  };
   return <div className="mx-auto max-w-3xl space-y-5 pb-8">
     <section className="rounded-xl border border-slate-200 bg-white p-5"><div className="flex items-start justify-between gap-4"><div><h3 className="text-sm font-bold text-slate-900">Project Management 模块</h3><p className="mt-1 text-xs leading-5 text-slate-500">按团队安装和启用；停用保留 Collaboration Database，重新启用即可恢复。</p></div><button type="button" onClick={() => void configure(module.installed ? { enabled: !module.enabled } : { installed: true, enabled: true })} className={`rounded-lg px-3 py-2 text-xs font-semibold ${module.enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-900 text-white'}`}>{module.enabled ? '停用模块' : module.installed ? '启用模块' : '安装并启用'}</button></div>{module.installed && <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">{PROJECT_CAPABILITIES.map((capability) => <label key={capability} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-600"><input type="checkbox" disabled={!module.enabled} checked={module.capabilities.includes(capability)} onChange={(event) => void configure({ capabilities: event.target.checked ? [...module.capabilities, capability] : module.capabilities.filter((item) => item !== capability) })} />{capability}</label>)}</div>}{team.collaborationDatabase && <div className="mt-4 border-t border-slate-100 pt-4"><button type="button" className="text-xs font-semibold text-rose-600" onClick={() => { if (window.confirm('永久删除该团队的 Collaboration Database？模块停用不会删除数据，此操作不可撤销。')) void deleteProjectData(team.id); }}>独立删除项目数据…</button></div>}</section>
+    <section className="rounded-xl border border-slate-200 bg-white p-5"><div className="flex items-start justify-between"><div><h3 className="text-sm font-bold text-slate-900">Plane 数据源</h3><p className="mt-1 text-xs leading-5 text-slate-500">连接开源 Plane 或自托管实例；Issues、Board 与 Gantt 将读写同一个 Plane Project。</p></div>{module.integration && <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-700">已连接</span>}</div><div className="mt-4 grid gap-3 sm:grid-cols-2"><input aria-label="Plane 实例地址" value={planeDraft.baseUrl} onChange={(event)=>setPlaneDraft({...planeDraft,baseUrl:event.target.value})} placeholder="https://plane.example.com" className="rounded-lg border border-slate-200 px-3 py-2 text-xs"/><input aria-label="Plane Workspace slug" value={planeDraft.workspaceSlug} onChange={(event)=>setPlaneDraft({...planeDraft,workspaceSlug:event.target.value})} placeholder="Workspace slug" className="rounded-lg border border-slate-200 px-3 py-2 text-xs"/><input aria-label="Plane Project ID" value={planeDraft.projectId} onChange={(event)=>setPlaneDraft({...planeDraft,projectId:event.target.value})} placeholder="Project ID" className="rounded-lg border border-slate-200 px-3 py-2 text-xs"/><input aria-label="Plane API Key" type="password" value={planeDraft.apiKey} onChange={(event)=>setPlaneDraft({...planeDraft,apiKey:event.target.value})} placeholder={module.integration ? '留空以继续使用已保存的 Key' : 'plane_api_…'} className="rounded-lg border border-slate-200 px-3 py-2 text-xs"/></div><div className="mt-4 flex justify-end gap-2">{module.integration && <button type="button" disabled={planeBusy} onClick={()=>void syncPlaneProject(team.id).then(()=>setMessage('Plane 已同步')).catch(()=>{})} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600">立即同步</button>}<button type="button" disabled={planeBusy || !planeDraft.baseUrl.trim() || !planeDraft.workspaceSlug.trim() || !planeDraft.projectId.trim()} onClick={()=>void connectPlane()} className="rounded-lg bg-slate-900 px-4 py-2 text-xs font-semibold text-white disabled:opacity-40">{planeBusy?'连接中…':'保存、测试并同步'}</button></div></section>
     <section className="rounded-xl border border-slate-200 bg-white p-5">
       <h3 className="text-sm font-bold text-slate-900">团队 Workspace</h3>
       <p className="mt-1 text-xs leading-5 text-slate-500">团队计划、群聊、上下文、Workflow、共享 Skill 与成员目录都归属于团队 Workspace。</p>

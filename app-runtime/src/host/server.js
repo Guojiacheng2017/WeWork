@@ -33,6 +33,9 @@ export function createHostServer({ token, services, journal = new EventJournal()
       if (req.url === "/v1/workspaces/local/choose" && req.method === "POST") return json(res, 200, await services.chooseDirectory());
       if (req.url === "/v1/credentials" && req.method === "GET") return json(res, 200, { credentials: await services.listCredentials() });
       if (req.url === "/v1/credentials" && req.method === "POST") return json(res, 201, await services.createCredential(await body(req)));
+      if (req.url === "/v1/integrations/plane/sync" && req.method === "POST") return json(res, 200, await services.syncPlaneProject(await body(req)));
+      if (req.url === "/v1/integrations/plane/work-items" && req.method === "POST") return json(res, 201, await services.createPlaneWorkItem(await body(req)));
+      if (req.url === "/v1/integrations/plane/work-items/update" && req.method === "POST") return json(res, 200, await services.updatePlaneWorkItem(await body(req)));
       if (req.url === "/v1/workspaces/ssh/probe" && req.method === "POST") return json(res, 200, await services.probeSshWorkspace(await body(req)));
       if (req.url === "/v1/runs" && req.method === "POST") return json(res, 202, await services.runtime.start(await body(req)));
       const runMatch = req.url?.match(/^\/v1\/runs\/([^/]+)$/);

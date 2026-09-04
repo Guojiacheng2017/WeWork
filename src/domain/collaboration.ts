@@ -2,7 +2,10 @@ export const PROJECT_CAPABILITIES = ['issues', 'board', 'gantt', 'timeline', 'ca
 export type ProjectCapability = typeof PROJECT_CAPABILITIES[number];
 
 export type TeamModuleRegistry = {
-  projectManagement: { installed: boolean; enabled: boolean; capabilities: ProjectCapability[] };
+  projectManagement: {
+    installed: boolean; enabled: boolean; capabilities: ProjectCapability[];
+    integration?: { provider: 'plane'; baseUrl: string; workspaceSlug: string; projectId: string; credentialRef: string; lastSyncedAt?: string };
+  };
 };
 
 export type CollaborationProject = { id: string; name: string; description: string; createdAt: string; updatedAt: string };
@@ -45,7 +48,14 @@ export function normalizeTeamModules(input: unknown): TeamModuleRegistry {
   if (!pm || typeof pm.installed !== 'boolean' || typeof pm.enabled !== 'boolean' || !Array.isArray(pm.capabilities)
     || pm.capabilities.some((capability) => typeof capability !== 'string' || !capabilitySet.has(capability))) throw new Error('invalid team module registry');
   if (pm.enabled && !pm.installed) throw new Error('enabled module must be installed');
-  return { projectManagement: { installed: pm.installed, enabled: pm.enabled, capabilities: [...new Set(pm.capabilities)] } };
+  let integration = pm.integration;
+  if (integration !== undefined) {
+    if (integration.provider !== 'plane' || !integration.baseUrl?.trim() || !integration.workspaceSlug?.trim() || !integration.projectId?.trim() || !integration.credentialRef?.trim()) throw new Error('invalid project integration');
+    const url = new URL(integration.baseUrl);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('invalid Plane base URL');
+    integration = { ...integration, baseUrl: url.toString().replace(/\/$/, ''), workspaceSlug: integration.workspaceSlug.trim(), projectId: integration.projectId.trim(), credentialRef: integration.credentialRef.trim() };
+  }
+  return { projectManagement: { installed: pm.installed, enabled: pm.enabled, capabilities: [...new Set(pm.capabilities)], ...(integration ? { integration } : {}) } };
 }
 
 export function createCollaborationDatabase(timestamp: string): CollaborationDatabase {

@@ -195,6 +195,11 @@ export function createLocalWeWorkApi(
       if (!team.modules!.projectManagement.capabilities.includes('dag') && team.topology === 'workflowDag') team.topology = 'roundTable';
       return team;
     }),
+    replaceCollaborationDatabase: async (teamId: string, input: unknown) => mutate((state) => {
+      const team = findTeam(state, teamId);
+      team.collaborationDatabase = normalizeCollaborationDatabase(input);
+      return team.collaborationDatabase;
+    }),
     createCollaborationWorkItem: async (teamId: string, input: Pick<CollaborationWorkItem, 'projectId' | 'title'> & Partial<Omit<CollaborationWorkItem, 'id' | 'projectId' | 'title' | 'createdAt' | 'updatedAt'>>) => mutate((state) => {
       const team = findTeam(state, teamId); const database = requireCapability(team, ['issues', 'board', 'gantt', 'timeline', 'calendar', 'database']);
       if (!database.projects.some((project) => project.id === input.projectId) || !input.title?.trim()) throw new Error('invalid work item');

@@ -1,6 +1,6 @@
 import { normalizeWorkspaceAssignment, type ResolvedWorkspace, type WorkspaceAssignment } from '../domain/wework';
 
-export type CredentialKind = 'ssh-password' | 'ssh-private-key' | 'model-api-key';
+export type CredentialKind = 'ssh-password' | 'ssh-private-key' | 'model-api-key' | 'integration-api-key';
 export type CredentialMetadata = { ref: string; label: string; kind: CredentialKind };
 export type HarnessId = 'pi' | 'claude-code' | 'codex-cli' | 'gemini-cli' | 'smalldashharness';
 export type HarnessCapabilities = { streaming: boolean; resumeSession: boolean; cancellation: boolean; workspace: boolean; tools: boolean };
@@ -30,6 +30,7 @@ export type AvailableSkill = { id: string; name: string; description: string; so
 export type DiagnosticEntry = { id: number; time: string; level: 'info' | 'error'; source: string; message: string; details?: Record<string, unknown> };
 export type DiagnosticSnapshot = { status: { host: 'ready' | 'unavailable'; pid: number | null }; entries: DiagnosticEntry[] };
 export type SkillCatalogResult = { skills: AvailableSkill[]; reason?: string };
+export type PlaneIntegrationInput = { teamId: string; baseUrl: string; workspaceSlug: string; projectId: string; credentialRef: string };
 export type SkillDiscoveryRequest = WorkspaceAssignment | {
   teamId?: string; employeeId?: string;
   team?: { id: string; name: string; workspaceAssignment?: WorkspaceAssignment };
@@ -96,6 +97,9 @@ export class WeWorkHost {
   probeHarnessModel(_input: HarnessModelInput): Promise<{ok: boolean; modelIds?: string[]; error?: string}> { return Promise.reject(new WeWorkHostError('HOST_UNAVAILABLE','模型检查需要 Desktop Host')); }
   setDefaultHarnessModel(_harness: HarnessId, _modelId: string): Promise<HarnessModelCatalogResult> { return Promise.reject(new WeWorkHostError('HOST_UNAVAILABLE','模型目录需要 Desktop Host')); }
   createCredential(input: { label: string; kind: CredentialKind; secret: string }) { return this.ports.vault.create(input); }
+  syncPlaneProject(_input: PlaneIntegrationInput): Promise<{ syncedAt: string }> { return Promise.reject(new WeWorkHostError('HOST_UNAVAILABLE','Plane 集成需要 Desktop Host')); }
+  createPlaneWorkItem(_input: PlaneIntegrationInput & { title: string }): Promise<{ syncedAt: string }> { return Promise.reject(new WeWorkHostError('HOST_UNAVAILABLE','Plane 集成需要 Desktop Host')); }
+  updatePlaneWorkItem(_input: PlaneIntegrationInput & { workItemId: string; patch: Record<string, unknown> }): Promise<{ syncedAt: string }> { return Promise.reject(new WeWorkHostError('HOST_UNAVAILABLE','Plane 集成需要 Desktop Host')); }
   async currentWorkspace(): Promise<ResolvedWorkspace> {
     return { kind: 'local', rootPath: await this.ports.directories.current() };
   }
@@ -107,11 +111,11 @@ export class WeWorkHost {
     const normalized = normalizeWorkspaceAssignment(assignment);
     if (normalized?.kind !== 'ssh') throw new Error('SSH Workspace assignment is invalid');
     const metadata = (await this.ports.vault.list()).find((item) => item.ref === normalized.credentialRef);
-    if (!metadata || metadata.kind === 'model-api-key') throw new Error('SSH credential reference is invalid');
+    if (!metadata || !['ssh-password', 'ssh-private-key'].includes(metadata.kind)) throw new Error('SSH credential reference is invalid');
     return this.ports.ssh.test({
       host: normalized.host, port: normalized.port, username: normalized.username,
       rootPath: normalized.rootPath, secret: await this.ports.vault.resolve(normalized.credentialRef),
-      credentialKind: metadata.kind,
+      credentialKind: metadata.kind as 'ssh-password' | 'ssh-private-key',
     });
   }
 }
@@ -195,6 +199,9 @@ export class LoopbackWeWorkHost {
   chooseLocalWorkspace() { return this.request<ResolvedWorkspace | null>('/v1/workspaces/local/choose', { method: 'POST' }); }
   credentials() { return this.request<{ credentials: CredentialMetadata[] }>('/v1/credentials').then((value) => value.credentials); }
   createCredential(input: { label: string; kind: CredentialKind; secret: string }) { return this.request<{ ref: string }>('/v1/credentials', { method: 'POST', body: JSON.stringify(input) }).then((value) => value.ref); }
+  syncPlaneProject(input: PlaneIntegrationInput) { return this.request<{syncedAt:string}>('/v1/integrations/plane/sync', { method: 'POST', body: JSON.stringify(input) }); }
+  createPlaneWorkItem(input: PlaneIntegrationInput & {title:string}) { return this.request<{syncedAt:string}>('/v1/integrations/plane/work-items', { method: 'POST', body: JSON.stringify(input) }); }
+  updatePlaneWorkItem(input: PlaneIntegrationInput & {workItemId:string;patch:Record<string,unknown>}) { return this.request<{syncedAt:string}>('/v1/integrations/plane/work-items/update', { method: 'POST', body: JSON.stringify(input) }); }
   testSshWorkspace(assignment: Extract<WorkspaceAssignment, { kind: 'ssh' }>) { return this.request<WorkspaceProbe>('/v1/workspaces/ssh/probe', { method: 'POST', body: JSON.stringify(assignment) }); }
   startRun(spec: object) { return this.request<{ id: string; status: string }>('/v1/runs', { method: 'POST', body: JSON.stringify(spec) }); }
   cancelRun(runId: string) { return this.request<{ accepted: boolean }>(`/v1/runs/${encodeURIComponent(runId)}/cancel`, { method: 'POST' }); }
