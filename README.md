@@ -31,6 +31,20 @@ npm run package
 
 The unpacked desktop application is produced under `desktop/dist/`.
 
+For a Linux ARM64 build (including Phytium/aarch64), build on an ARM64 Linux
+desktop or in an equivalent ARM64 build environment:
+
+```bash
+sudo apt-get install libsecret-tools
+npm install
+npm run package:linux-arm64
+```
+
+The DEB and AppImage artifacts are written under `desktop/dist/`. Credentials
+are stored through the desktop Secret Service; a running keyring provider such
+as GNOME Keyring or KWallet is required. The target machine's glibc and desktop
+libraries must also satisfy the Electron runtime bundled with the application.
+
 For a Windows x64 ZIP, run on Windows from this project directory:
 
 ```powershell
