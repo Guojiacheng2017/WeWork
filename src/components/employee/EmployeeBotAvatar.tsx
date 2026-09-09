@@ -1,3 +1,4 @@
+import { employeeFrameColor } from '../../domain/employeeColor';
 import React from 'react';
 import { EmployeeBot, employeeStateForStatus, type EmployeeBotStatus } from './EmployeeBot';
 
@@ -42,7 +43,9 @@ export const EmployeeBotAvatar: React.FC<EmployeeBotAvatarProps> = ({
         state={employeeStateForStatus(status)}
         size={size}
         bodyColor={bodyColor}
-        frameColor={frameColor}
+        frameColor={frameColor ?? employeeFrameColor(bodyColor)}
+        effectColor={frameColor ?? employeeFrameColor(bodyColor)}
+        eyeColor="#ffffff"
         paused={paused}
       />
     </div>

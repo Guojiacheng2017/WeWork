@@ -1,41 +1,87 @@
-import { ChevronDown, FileText, GripVertical, Plus, X } from 'lucide-react';
-import { useState } from 'react';
+import { Button, Field, Input, NativeSelect, Textarea } from '../ui';
+import { ChevronDown, ExternalLink, FileText, GripVertical, MessageCircle, Plus, Settings2, UserRound, X } from 'lucide-react';
+import { ReactNode, useEffect, useRef, useState } from 'react';
 import { useWeWorkStore } from '../../state/weworkStore';
 import { WorkItem } from '../../domain/wework';
+import { ConversationComposer } from '../common/ConversationComposer';
+import { MarkdownMessage } from '../common/MarkdownMessage';
+import { WeWorkEmployeeAvatar } from '../WeWorkEmployeeAvatar';
+import { completeGroupMention, groupMentionSuggestions, parseGroupDraft } from '../team/groupDraft';
+import { GroupMentionList } from '../team/GroupMentionList';
 
-export function PendingWorkBar({ embedded = false, onEmbeddedClose }: { embedded?: boolean; onEmbeddedClose?: () => void }) {
+interface AuxiliaryDrawer {
+  visible: boolean;
+  expanded: boolean;
+  title: string;
+  subtitle: string;
+  content: ReactNode;
+  onOpen: () => void;
+  onClose: () => void;
+  onCollapsed?: () => void;
+}
+
+export function PendingWorkBar({ embedded = false, onExpandedChange, onEmbeddedClose, onOpenTeamChat, auxiliaryDrawer }: { embedded?: boolean; onExpandedChange?: (expanded: boolean) => void; onEmbeddedClose?: () => void; onOpenTeamChat?: () => void; auxiliaryDrawer?: AuxiliaryDrawer }) {
   const [open, setOpen] = useState(true);
   const [selectedWork, setSelectedWork] = useState<WorkItem | null>(null);
   const [creating, setCreating] = useState(false);
+  const [tab, setTab] = useState<'work'|'chat'|'auxiliary'|null>('chat');
+  const [chatDraft, setChatDraft] = useState('');
+  const [chatSending, setChatSending] = useState(false);
+  const [chatError, setChatError] = useState('');
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const [mentionsDismissed, setMentionsDismissed] = useState(false);
+  const [readMessageCounts, setReadMessageCounts] = useState<Record<string, number>>({});
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const chatInputRef = useRef<HTMLTextAreaElement>(null);
   const [draft, setDraft] = useState({ title: '', goal: '', priority: 'medium' as WorkItem['priority'], category: 'Digital' as WorkItem['category'], runtimeProfileId: '' });
-  const { teams, runtimeProfiles, selectedTeamId, setDraggingWorkItemId, setDragHoveredEmployeeId, createWorkItem, cancelWork } = useWeWorkStore();
-  const works = teams.find((team) => team.id === selectedTeamId)?.pendingWorks ?? [];
+  const { teams, runtimeProfiles, selectedTeamId, setDraggingWorkItemId, setDragHoveredEmployeeId, createWorkItem, cancelWork, sendTeamMessage } = useWeWorkStore();
+  const team = teams.find((candidate) => candidate.id === selectedTeamId);
+  const works = team?.pendingWorks ?? [];
+  const messages = team?.teamMessages ?? [];
+  const mentionSuggestions = mentionsDismissed || !team ? [] : groupMentionSuggestions(chatDraft, team.employees);
+  const selectedMention = Math.min(mentionIndex, Math.max(0, mentionSuggestions.length - 1));
+  const unreadMessages = team ? Math.max(0, messages.length - (readMessageCounts[team.id] ?? 0)) : 0;
+  const closeEmbedded=()=>{if(onEmbeddedClose)onEmbeddedClose();else setTab(null);};
+  useEffect(()=>{onExpandedChange?.(tab!==null);},[onExpandedChange,tab]);
+  useEffect(()=>{if(auxiliaryDrawer?.expanded)setTab('auxiliary');},[auxiliaryDrawer?.expanded]);
+  useEffect(()=>{if(tab==='chat'&&team)setReadMessageCounts(counts=>counts[team.id]===messages.length?counts:{...counts,[team.id]:messages.length});},[messages.length,tab,team]);
+  useEffect(()=>{if(tab==='chat')chatEndRef.current?.scrollIntoView({block:'end'});},[tab,messages.length]);
+  useEffect(()=>{setMentionIndex(0);setMentionsDismissed(false);},[chatDraft]);
+  const mention=(employee:{displayName:string})=>{setChatDraft(value=>completeGroupMention(value,employee.displayName));chatInputRef.current?.focus();};
+  const submitChat=async()=>{if(!team||!chatDraft.trim()||chatSending)return;const parsed=parseGroupDraft(chatDraft,team.employees);if(!parsed.all&&parsed.mentioned.length>1){setChatError('请一次 @ 一位助手。');return;}setChatSending(true);setChatError('');try{await sendTeamMessage(team.id,chatDraft.trim(),parsed.recipientId,parsed.contextTagIds);setChatDraft('');}catch(error){setChatError(error instanceof Error?error.message:String(error));}finally{setChatSending(false);}};
 
   if (!open && !embedded) {
     return (
-      <button type="button" onClick={() => setOpen(true)} className="absolute right-5 top-4 z-20 flex h-11 items-center gap-2.5 rounded-xl border border-slate-200 bg-white/95 px-4 text-xs font-bold text-slate-800 shadow-lg backdrop-blur hover:border-rose-200">
+      <Button type="button" onClick={() => setOpen(true)} className="absolute right-5 top-4 z-20 flex h-11 items-center gap-2.5 rounded-xl border border-slate-200 bg-white/95 px-4 text-xs font-bold text-slate-800 shadow-lg backdrop-blur hover:border-rose-200">
         <FileText className="h-4 w-4 text-rose-600" />
         <span>待办公文与任务</span>
-        <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] text-rose-700">{works.length}</span>
-        <span className="text-[10px] font-normal text-slate-400">可拖拽派发</span>
+        <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] text-rose-700">{works.length}</span>
+        <span className="text-[11px] font-normal text-slate-400">可拖拽派发</span>
         <ChevronDown className="h-4 w-4 text-slate-400" />
-      </button>
+      </Button>
     );
   }
 
   if (!open && embedded) {
-    return <button type="button" onClick={() => setOpen(true)} className="flex h-full w-full items-center justify-center gap-2 bg-white text-xs font-semibold text-slate-600 hover:bg-slate-50"><FileText className="h-4 w-4 text-rose-500" />展开待办公文与任务<span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] text-rose-700">{works.length}</span></button>;
+    return <button type="button" onClick={() => setOpen(true)} className="flex h-full w-full items-center justify-center gap-2 bg-white text-xs font-semibold text-slate-600 hover:bg-slate-50"><FileText className="h-4 w-4 text-rose-500" />展开待办公文与任务<span className="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] text-rose-700">{works.length}</span></button>;
+  }
+
+  if (embedded && tab === null) {
+    return <nav aria-label="打开协作抽屉" className="flex h-full w-full flex-col items-center gap-2 rounded-2xl border border-slate-200 bg-white/90 p-1.5 shadow-sm backdrop-blur">
+      <button type="button" title="打开团队群聊" aria-label={`打开团队群聊，${unreadMessages} 条未读`} onClick={()=>setTab('chat')} className="relative grid h-10 w-10 place-items-center rounded-xl text-slate-500 outline-none transition hover:bg-sky-50 hover:text-sky-700 focus-visible:ring-2 focus-visible:ring-sky-200"><MessageCircle className="h-4 w-4"/>{unreadMessages>0&&<span className="absolute right-0.5 top-0.5 min-w-4 rounded-full bg-sky-100 px-1 text-[9px] font-semibold leading-4 text-sky-700">{unreadMessages}</span>}</button>
+      <button type="button" title="打开待办公文与任务" aria-label={`打开待办公文与任务，${works.length} 项`} onClick={()=>setTab('work')} className="relative grid h-10 w-10 place-items-center rounded-xl text-slate-500 transition hover:bg-rose-50 hover:text-rose-700"><FileText className="h-4 w-4"/>{works.length>0&&<span className="absolute right-0.5 top-0.5 min-w-4 rounded-full bg-rose-100 px-1 text-[9px] font-semibold leading-4 text-rose-700">{works.length}</span>}</button>
+      {auxiliaryDrawer?.visible&&<button type="button" title={`打开${auxiliaryDrawer.title}`} aria-label={`打开${auxiliaryDrawer.title}`} onClick={()=>{setTab('auxiliary');auxiliaryDrawer.onOpen();}} className="grid h-10 w-10 place-items-center rounded-xl text-slate-500 transition hover:bg-violet-50 hover:text-violet-700"><Settings2 className="h-4 w-4"/></button>}
+    </nav>;
   }
 
   return (
     <aside className={embedded
-      ? 'pending-work-drawer relative flex h-full min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_8px_24px_rgba(15,23,42,0.08)]'
+      ? 'pending-work-drawer relative flex h-full min-h-0 w-full flex-col gap-2 overflow-visible'
       : 'pending-work-drawer absolute bottom-4 right-4 top-4 z-30 flex w-[380px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_8px_24px_rgba(15,23,42,0.08)]'}>
-      <header className="flex h-16 shrink-0 items-center justify-between border-b border-slate-100 px-5">
-        <div><h3 className="text-sm font-bold text-slate-900">待办公文与任务</h3><p className="mt-0.5 text-[11px] text-slate-400">拖动卡片到助手或流程节点</p></div>
-        <div className="flex items-center gap-1"><button type="button" aria-label="新建待办" onClick={() => setCreating(true)} className="grid h-8 w-8 place-items-center rounded-lg text-slate-500 hover:bg-slate-100"><Plus className="h-4 w-4" /></button><button type="button" aria-label="收起待办" onClick={() => embedded && onEmbeddedClose ? onEmbeddedClose() : setOpen(false)} className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-100"><X className="h-4 w-4" /></button></div>
-      </header>
-      <div className="flex-1 space-y-2.5 overflow-y-auto p-4">
+      <div className={`order-0 flex h-16 shrink-0 items-center border border-slate-200 bg-white pr-2 shadow-sm ${tab==='chat'?'rounded-t-2xl border-b-transparent bg-sky-50/60':'rounded-2xl'}`}><button type="button" aria-expanded={tab==='chat'} aria-controls="team-drawer-chat" onClick={()=>setTab('chat')} className="group flex h-full min-w-0 flex-1 items-center gap-3 rounded-2xl px-4 text-left text-slate-700 outline-none transition hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-200"><span className={`grid h-9 w-9 place-items-center rounded-xl ${tab==='chat'?'bg-sky-100 text-sky-700':'bg-slate-100 text-slate-500'}`}><MessageCircle className="h-4 w-4"/></span><span className="min-w-0 flex-1"><strong className="block text-xs">团队群聊</strong><small className="mt-0.5 block text-[10px] font-normal text-slate-400">全员可见 · @ 助手邀请回复</small></span>{tab!=='chat'&&unreadMessages>0&&<span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-sky-600 shadow-sm">{unreadMessages}</span>}<ChevronDown className={`h-4 w-4 transition-transform ${tab==='chat'?'rotate-180':''}`}/></button>{tab==='chat'&&<>{onOpenTeamChat&&<Button variant="ghost" type="button" title="在团队管理中展开群聊" aria-label="在团队管理中展开群聊" onClick={onOpenTeamChat} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-500 hover:bg-sky-50 hover:text-sky-700"><ExternalLink className="h-4 w-4"/></Button>}<Button variant="ghost" type="button" title="关闭群聊" aria-label="关闭团队群聊抽屉" onClick={closeEmbedded} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-sm hover:border-slate-300 hover:bg-slate-50 hover:text-slate-800"><X className="h-4 w-4"/></Button></>}</div>
+      {tab==='chat'&&<section id="team-drawer-chat" className="order-1 -mt-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-b-2xl border border-t-0 border-slate-200 bg-white shadow-[0_12px_28px_rgba(15,23,42,0.07)]"><div aria-label="团队群聊消息" className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4">{messages.length===0&&<div className="grid h-full place-items-center text-center"><div><MessageCircle className="mx-auto h-7 w-7 text-slate-300"/><p className="mt-2 text-xs font-semibold text-slate-500">发送第一条群聊消息</p><p className="mt-1 text-[11px] text-slate-400">所有成员可见，@ 助手可邀请回复</p></div></div>}{messages.map(message=>{const human=message.sender==='user';const employee=human?undefined:team?.employees.find(value=>value.id===message.senderId)??team?.employees.find(value=>value.displayName===message.senderName);return <article key={message.id} className="flex gap-2.5"><span className={`grid h-8 w-8 shrink-0 place-items-center ${human?'rounded-full bg-slate-900 text-white':''}`}>{human?<UserRound className="h-4 w-4"/>:employee?<WeWorkEmployeeAvatar employee={employee} overview/>:<span className="rounded-full bg-sky-50 p-2 text-[10px] text-sky-700">AI</span>}</span><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><strong className="text-[11px] text-slate-700">{human?'你':message.senderName??'助手'}</strong><time className="text-[10px] text-slate-400">{message.time.includes('T')?new Date(message.time).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}):message.time}</time></div><div className="mt-1 break-words text-xs leading-5 text-slate-600"><MarkdownMessage>{message.text}</MarkdownMessage></div>{message.contextTagIds?.length?<div className="mt-1 flex flex-wrap gap-1">{message.contextTagIds.map(value=><span key={value} className="rounded bg-sky-50 px-1.5 py-0.5 text-[10px] text-sky-700">#{value}</span>)}</div>:null}</div></article>})}<div ref={chatEndRef}/></div>{chatError&&<p role="alert" className="px-4 pb-1 text-[11px] text-rose-600">{chatError}</p>}<GroupMentionList employees={team?.employees??[]} suggestions={mentionSuggestions} selectedIndex={selectedMention} onSelect={mention} className="mx-3"/><div className="border-t border-slate-100 p-3"><ConversationComposer flush inputRef={chatInputRef} onInputKeyDown={event=>{if(!mentionSuggestions.length)return;if(['ArrowDown','ArrowUp','Enter','Tab','Escape'].includes(event.key)&&!event.shiftKey){event.preventDefault();event.stopPropagation();if(event.key==='Escape')setMentionsDismissed(true);else if(event.key==='Enter'||event.key==='Tab')mention(mentionSuggestions[selectedMention]);else setMentionIndex((selectedMention+(event.key==='ArrowDown'?1:-1)+mentionSuggestions.length)%mentionSuggestions.length);}}} value={chatDraft} onChange={setChatDraft} onSubmit={()=>void submitChat()} disabled={chatSending} ariaLabel="发送团队群聊消息" placeholder="发送消息… @ 提及助手，# 添加标签" leadingControls={<div className="flex items-center gap-2"><button type="button" aria-label="提及群聊助手" onClick={()=>{setChatDraft(value=>`${value}${value&&!value.endsWith(' ')?' ':''}@`);chatInputRef.current?.focus();}} className="grid h-7 w-7 place-items-center rounded-lg text-sm font-semibold text-slate-500 hover:bg-white">@</button><span className="text-[10px] text-slate-400">#{team?.name??'团队'} · 全员可见</span></div>}/></div></section>}
+      <div className={`order-2 flex h-16 shrink-0 items-center border border-slate-200 bg-white pr-2 shadow-sm ${tab==='work'?'rounded-t-2xl border-b-transparent bg-rose-50/40':'rounded-2xl'}`}><button type="button" aria-expanded={tab==='work'} aria-controls="team-drawer-work" onClick={()=>setTab('work')} className="group flex h-full min-w-0 flex-1 items-center gap-3 rounded-2xl px-4 text-left text-slate-700 outline-none transition hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-rose-200"><span className={`grid h-9 w-9 place-items-center rounded-xl ${tab==='work'?'bg-rose-100 text-rose-700':'bg-slate-100 text-slate-500'}`}><FileText className="h-4 w-4"/></span><span className="min-w-0 flex-1"><strong className="block text-xs">待办公文与任务</strong><small className="mt-0.5 block text-[10px] font-normal text-slate-400">拖动卡片到助手或流程节点</small></span><span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-600">{works.length}</span><ChevronDown className={`h-4 w-4 transition-transform ${tab==='work'?'rotate-180':''}`}/></button>{tab==='work'&&<><Button variant="ghost" type="button" title="新建待办" aria-label="新建待办" onClick={() => setCreating(true)} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-rose-200 bg-rose-50 text-rose-600 shadow-sm hover:border-rose-300 hover:bg-rose-100"><Plus className="h-4 w-4" /></Button><Button variant="ghost" type="button" title="关闭待办" aria-label="关闭待办抽屉" onClick={closeEmbedded} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-sm hover:border-slate-300 hover:bg-slate-50 hover:text-slate-800"><X className="h-4 w-4"/></Button></>}</div>
+      {tab==='work'&&<div id="team-drawer-work" className="order-3 -mt-2 flex-1 space-y-2.5 overflow-y-auto rounded-b-2xl border border-t-0 border-slate-200 bg-white p-4 shadow-[0_12px_28px_rgba(15,23,42,0.07)]">
         {works.length === 0 && (
           <div className="grid h-full place-items-center text-center">
             <div><FileText className="mx-auto h-7 w-7 text-slate-300" /><p className="mt-2 text-xs font-semibold text-slate-500">当前没有待派发工作</p><p className="mt-1 text-[11px] text-slate-400">已派发事项可在助手工作台查看</p></div>
@@ -53,24 +99,28 @@ export function PendingWorkBar({ embedded = false, onEmbeddedClose }: { embedded
             <div className="flex items-start gap-2.5">
               <GripVertical className="mt-0.5 h-4 w-4 shrink-0 text-slate-300" />
               <div className="min-w-0 flex-1">
-                <div className="mb-2 flex items-center gap-2"><span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">{work.category === 'Paperwork' ? '公文' : '工单'}</span>{work.priority === 'high' && <span className="text-[10px] font-semibold text-rose-600">紧急</span>}<time className="ml-auto text-[10px] text-slate-400">{work.createdAt}</time></div>
+                <div className="mb-2 flex items-center gap-2"><span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[11px] font-semibold text-slate-600">{work.category === 'Paperwork' ? '公文' : '工单'}</span>{work.priority === 'high' && <span className="text-[11px] font-semibold text-rose-600">紧急</span>}<time className="ml-auto text-[11px] text-slate-400">{work.createdAt}</time></div>
                 <h4 className="text-xs font-bold leading-5 text-slate-900">{work.title}</h4>
                 <p className="mt-1 line-clamp-2 text-[11px] leading-5 text-slate-500">{work.goal}</p>
               </div>
             </div>
           </article>
         ))}
-      </div>
-      {(selectedWork || creating) && <div className="absolute inset-0 z-10 bg-white p-5">
-        <div className="flex items-start justify-between"><div><p className="text-[10px] font-semibold uppercase text-rose-600">{creating ? 'New work' : selectedWork?.category}</p><h4 className="mt-1 text-sm font-bold text-slate-900">{creating ? '新建待办工作' : selectedWork?.title}</h4></div><button type="button" aria-label="关闭待办详情" onClick={() => { setSelectedWork(null); setCreating(false); }} className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-100"><X className="h-4 w-4" /></button></div>
-        {creating ? <form className="mt-5 space-y-4" onSubmit={(event) => { event.preventDefault(); if (!draft.title.trim() || !draft.goal.trim()) return; createWorkItem({ ...draft, runtimeProfileId: draft.runtimeProfileId || undefined }); setDraft({ title: '', goal: '', priority: 'medium', category: 'Digital', runtimeProfileId: '' }); setCreating(false); }}>
-          <label className="block text-[11px] font-semibold text-slate-600">标题<input name="work-title" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-rose-400" required /></label>
-          <label className="block text-[11px] font-semibold text-slate-600">目标<textarea name="work-goal" value={draft.goal} onChange={(event) => setDraft({ ...draft, goal: event.target.value })} className="mt-1.5 min-h-24 w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none focus:border-rose-400" required /></label>
-          <div className="grid grid-cols-2 gap-3"><label className="text-[11px] font-semibold text-slate-600">形式<select name="work-category" value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value as WorkItem['category'] })} className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs"><option value="Digital">Digital Work</option><option value="Paperwork">Paperwork</option></select></label><label className="text-[11px] font-semibold text-slate-600">优先级<select name="work-priority" value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: event.target.value as WorkItem['priority'] })} className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs"><option value="low">低</option><option value="medium">普通</option><option value="high">紧急</option></select></label></div>
-          <label className="block text-[11px] font-semibold text-slate-600">执行配置（可选覆盖）<select aria-label="任务执行配置" value={draft.runtimeProfileId} onChange={(event) => setDraft({ ...draft, runtimeProfileId: event.target.value })} className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs"><option value="">继承助手 / 团队默认配置</option>{runtimeProfiles.filter((profile) => profile.enabled).map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}</select></label>
-          <button type="submit" className="w-full rounded-lg bg-slate-900 py-2.5 text-xs font-semibold text-white hover:bg-slate-800">加入团队待办</button>
-        </form> : selectedWork && <div className="mt-5 space-y-4"><div><p className="text-[11px] font-semibold text-slate-400">目标</p><p className="mt-1 text-xs leading-5 text-slate-700">{selectedWork.goal}</p></div>{selectedWork.constraints && <div><p className="text-[11px] font-semibold text-slate-400">约束</p><p className="mt-1 text-xs leading-5 text-slate-700">{selectedWork.constraints}</p></div>}<div className="flex gap-2 border-t border-slate-100 pt-4 text-[10px] text-slate-500"><span className="rounded bg-slate-100 px-2 py-1">{selectedWork.priority}</span><span className="rounded bg-slate-100 px-2 py-1">创建于 {selectedWork.createdAt}</span></div><p className="text-[11px] leading-5 text-slate-400">关闭详情后，可将卡片拖到圆桌助手或 DAG 节点完成派发。</p><button type="button" onClick={async () => { if (!window.confirm(`确定取消“${selectedWork.title}”吗？取消后不会回到待办队列。`)) return; await cancelWork(selectedWork.id); setSelectedWork(null); }} className="w-full rounded-lg border border-rose-200 py-2.5 text-xs font-semibold text-rose-600 hover:bg-rose-50">取消工作</button></div>}
       </div>}
+      {tab==='work' && (selectedWork || creating) && <div className={creating ? "absolute inset-x-1 bottom-1 z-10 max-h-[72%] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_-12px_28px_rgba(15,23,42,0.10)]" : "absolute inset-0 z-10 bg-white p-5"}>
+        <div className="flex items-start justify-between"><div><p className="text-[11px] font-semibold uppercase text-rose-600">{creating ? 'New work' : selectedWork?.category}</p><h4 className="mt-1 text-sm font-bold text-slate-900">{creating ? '新建待办工作' : selectedWork?.title}</h4></div><Button variant="ghost" type="button" aria-label="关闭待办详情" onClick={() => { setSelectedWork(null); setCreating(false); }} className="grid h-8 w-8 place-items-center"><X className="h-4 w-4" /></Button></div>
+        {creating ? <form className="mt-5 space-y-4" onSubmit={(event) => { event.preventDefault(); if (!draft.title.trim() || !draft.goal.trim()) return; createWorkItem({ ...draft, runtimeProfileId: draft.runtimeProfileId || undefined }); setDraft({ title: '', goal: '', priority: 'medium', category: 'Digital', runtimeProfileId: '' }); setCreating(false); }}>
+          <Field label="标题"><Input name="work-title" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} required /></Field>
+          <Field label="目标"><Textarea name="work-goal" value={draft.goal} onChange={(event) => setDraft({ ...draft, goal: event.target.value })} className="min-h-24" required /></Field>
+          <div className="grid grid-cols-2 gap-3"><Field label="形式"><NativeSelect name="work-category" value={draft.category} onChange={(event) => setDraft({ ...draft, category: event.target.value as WorkItem['category'] })}><option value="Digital">Digital Work</option><option value="Paperwork">Paperwork</option></NativeSelect></Field><Field label="优先级"><NativeSelect name="work-priority" value={draft.priority} onChange={(event) => setDraft({ ...draft, priority: event.target.value as WorkItem['priority'] })}><option value="low">低</option><option value="medium">普通</option><option value="high">紧急</option></NativeSelect></Field></div>
+          <Field label="执行配置（可选覆盖）"><NativeSelect value={draft.runtimeProfileId} onChange={(event) => setDraft({ ...draft, runtimeProfileId: event.target.value })}><option value="">继承助手 / 团队默认配置</option>{runtimeProfiles.filter((profile) => profile.enabled).map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}</NativeSelect></Field>
+          <Button variant="primary" type="submit" className="w-full py-2.5 text-xs">加入团队待办</Button>
+        </form> : selectedWork && <div className="mt-5 space-y-4"><div><p className="text-[11px] font-semibold text-slate-400">目标</p><p className="mt-1 text-xs leading-5 text-slate-700">{selectedWork.goal}</p></div>{selectedWork.constraints && <div><p className="text-[11px] font-semibold text-slate-400">约束</p><p className="mt-1 text-xs leading-5 text-slate-700">{selectedWork.constraints}</p></div>}<div className="flex gap-2 border-t border-slate-100 pt-4 text-[11px] text-slate-500"><span className="rounded bg-slate-100 px-2 py-1">{selectedWork.priority}</span><span className="rounded bg-slate-100 px-2 py-1">创建于 {selectedWork.createdAt}</span></div><p className="text-[11px] leading-5 text-slate-400">关闭详情后，可将卡片拖到圆桌助手或 DAG 节点完成派发。</p><Button type="button" onClick={async () => { if (!window.confirm(`确定取消“${selectedWork.title}”吗？取消后不会回到待办队列。`)) return; await cancelWork(selectedWork.id); setSelectedWork(null); }} className="w-full rounded-lg border border-rose-200 py-2.5 text-xs font-semibold text-rose-600 hover:bg-rose-50">取消工作</Button></div>}
+      </div>}
+      {auxiliaryDrawer?.visible&&<>
+        <div className={`order-4 flex h-16 shrink-0 items-center border border-slate-200 bg-white pr-2 shadow-sm ${tab==='auxiliary'?'rounded-t-2xl border-b-transparent bg-violet-50/50':'rounded-2xl'}`}><button type="button" aria-expanded={tab==='auxiliary'} aria-controls="team-drawer-auxiliary" onClick={()=>{setTab('auxiliary');auxiliaryDrawer.onOpen();}} className="group flex h-full min-w-0 flex-1 items-center gap-3 rounded-2xl px-4 text-left text-slate-700 outline-none transition hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-violet-200"><span className={`grid h-9 w-9 place-items-center rounded-xl ${tab==='auxiliary'?'bg-violet-100 text-violet-700':'bg-slate-100 text-slate-500'}`}><Settings2 className="h-4 w-4"/></span><span className="min-w-0 flex-1"><strong className="block text-xs">{auxiliaryDrawer.title}</strong><small className="mt-0.5 block text-[10px] font-normal text-slate-400">{auxiliaryDrawer.subtitle}</small></span><ChevronDown className={`h-4 w-4 transition-transform duration-300 ${tab==='auxiliary'&&auxiliaryDrawer.expanded?'rotate-180':''}`}/></button>{tab==='auxiliary'&&<Button variant="ghost" type="button" title={`关闭${auxiliaryDrawer.title}`} aria-label={`关闭${auxiliaryDrawer.title}抽屉`} onClick={()=>{setTab(null);auxiliaryDrawer.onClose();}} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-sm hover:border-slate-300 hover:bg-slate-50 hover:text-slate-800"><X className="h-4 w-4"/></Button>}</div>
+        <section id="team-drawer-auxiliary" aria-hidden={tab!=='auxiliary'} onTransitionEnd={(event)=>{if(event.propertyName==='grid-template-rows'&&!auxiliaryDrawer.expanded)auxiliaryDrawer.onCollapsed?.();}} className={`order-5 -mt-2 grid min-h-0 overflow-hidden rounded-b-2xl border border-t-0 border-slate-200 bg-white shadow-[0_12px_28px_rgba(15,23,42,0.07)] transition-[grid-template-rows,opacity] duration-300 ease-out ${tab==='auxiliary'&&auxiliaryDrawer.expanded?'grid-rows-[1fr] flex-1 opacity-100':'grid-rows-[0fr] opacity-0'}`}><div className="min-h-0 overflow-y-auto">{auxiliaryDrawer.content}</div></section>
+      </>}
     </aside>
   );
 }

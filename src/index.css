@@ -11,29 +11,33 @@
   }
 }
 
-html.wework-desktop body {
-  padding-top: 38px;
-  overflow: hidden;
-  background: #f8fafc;
-}
-html.wework-desktop body::before {
-  content: "WeWork";
-  position: fixed;
-  inset: 0 0 auto 0;
-  z-index: 10000;
-  display: grid;
-  height: 38px;
-  place-items: center;
-  border-bottom: 1px solid rgb(226 232 240 / 82%);
-  background: rgb(255 255 255 / 88%);
-  color: #475569;
-  font-size: 12px;
-  font-weight: 650;
-  letter-spacing: .01em;
+/* Native window controls share the application's header row. */
+.wework-window-controls { display: none; }
+html.wework-desktop body { overflow: hidden; background: #f8fafc; }
+html.wework-desktop .wework-window-controls {
+  display: flex; height: 52px; flex-shrink: 0; align-items: center;
+  justify-content: flex-end; padding: 0 16px 0 100px;
   -webkit-app-region: drag;
-  backdrop-filter: blur(18px) saturate(1.15);
 }
-html.wework-desktop .h-screen { height: calc(100vh - 38px); }
+html.wework-desktop .wework-window-controls button {
+  display: grid; place-items: center; width: 32px; height: 32px;
+  flex-shrink: 0; color: #64748b; -webkit-app-region: no-drag;
+}
+html.wework-desktop aside[data-collapsed] { z-index: 30; }
+html.wework-desktop .wework-brand-toggle { display: none; }
+html.wework-desktop .wework-stage-header {
+  min-height: 52px; height: auto; gap: 12px; padding: 8px 20px; flex-wrap: wrap;
+  -webkit-app-region: drag;
+}
+html.wework-desktop .wework-stage-header button,
+html.wework-desktop .wework-stage-header nav { -webkit-app-region: no-drag; }
+html.wework-desktop aside[data-collapsed="true"] .wework-window-controls button {
+  position: fixed; left: 104px; top: 10px;
+}
+html.wework-desktop aside[data-collapsed="true"] + main > .wework-stage-header { padding-left: 84px; }
+html.wework-desktop .wework-stage-header > div:first-child { flex: 1; }
+html.wework-desktop .wework-stage-header > div:last-child { max-width: 100%; overflow-x: auto; }
+html.wework-desktop .wework-stage-header button { white-space: nowrap; }
 
 /* Custom subtle scrollbar */
 ::-webkit-scrollbar {
@@ -91,8 +95,10 @@ html.wework-desktop .h-screen { height: calc(100vh - 38px); }
 .relative:has(> .pending-work-drawer) > .workspace-view { width: calc(100% - 400px); }
 .project-create { display:flex; gap:.5rem; margin-bottom:1rem; }
 .project-create input,.project-row input,.project-row select,.project-board select,.gantt-row input { border:1px solid #e2e8f0; border-radius:.5rem; background:white; padding:.45rem .65rem; font-size:.75rem; }
+.project-row .project-colored-field { display:flex; min-width:0; align-items:center; gap:.4rem; border:1px solid; border-radius:.65rem; padding:.1rem .55rem; font-weight:600; }
+.project-row .project-colored-field select,.project-row .project-colored-field input { min-width:0; width:100%; border:0; background:transparent; padding:.4rem 0; color:inherit; outline:none; }
 .project-create input { flex:1; }.project-create button { border-radius:.5rem; background:#0f172a; color:white; padding:.5rem 1rem; font-size:.75rem; font-weight:700; }
-.project-table { overflow:hidden; border:1px solid #e2e8f0; border-radius:.75rem; background:white; }.project-row { display:grid; grid-template-columns:minmax(220px,1fr) 140px 100px 150px; gap:1rem; align-items:center; padding:.75rem 1rem; border-bottom:1px solid #f1f5f9; font-size:.75rem; }.project-head { background:#f8fafc; color:#64748b; font-size:.65rem; font-weight:700; text-transform:uppercase; }
+.project-table { overflow-x:auto; border:1px solid #e2e8f0; border-radius:.75rem; background:white; }.project-row { min-width:690px; display:grid; grid-template-columns:minmax(220px,1fr) 140px 100px 150px; gap:1rem; align-items:center; padding:.75rem 1rem; border-bottom:1px solid #f1f5f9; font-size:.75rem; }.project-head { background:#f8fafc; color:#64748b; font-size:.65rem; font-weight:700; text-transform:uppercase; }
 .project-board { display:grid; grid-template-columns:repeat(3,minmax(220px,1fr)); gap:1rem; }.project-board section { min-height:520px; border-radius:.75rem; background:#f1f5f9; padding:.75rem; }.project-board header { display:flex; gap:.5rem; align-items:center; font-size:.75rem; font-weight:700; }.project-board header i { width:.5rem; height:.5rem; border-radius:50%; }.project-board header small { margin-left:auto; }.project-board article { margin-top:.65rem; padding:.75rem; border:1px solid #e2e8f0; border-radius:.65rem; background:white; display:grid; gap:.65rem; font-size:.75rem; }
 .project-gantt { border:1px solid #e2e8f0; border-radius:.75rem; overflow:hidden; background:white; }.gantt-axis { padding:.75rem 1rem; background:#f8fafc; color:#64748b; font-size:.7rem; }.gantt-row { display:grid; grid-template-columns:minmax(200px,1fr) 190px 20px 190px; align-items:center; gap:1rem; padding:.8rem 1rem; border-top:1px solid #f1f5f9; font-size:.75rem; }.gantt-row label { display:flex; align-items:center; gap:.5rem; color:#64748b; }
 .workflow-canvas {
@@ -114,9 +120,9 @@ html.wework-desktop .h-screen { height: calc(100vh - 38px); }
 .wework-stage__employee-button:focus-visible { outline: 2px solid #c7000b; outline-offset: 4px; }
 .wework-stage__avatar { display: block; width: 100%; height: 100%; transition: transform 180ms cubic-bezier(.22,1,.36,1); }
 .wework-stage[data-mode="topDown"] .wework-stage__employee-button:hover .wework-stage__avatar { transform: scale(1.15); }
-.wework-stage__identity { position: absolute; top: calc(100% + 5px); left: 50%; display: grid; min-width: max-content; gap: 2px; transform: translateX(-50%); text-align: center; pointer-events: none; }
-.wework-stage__identity strong { max-width: 150px; padding: 2px 8px; overflow: hidden; border-radius: 99px; background: rgb(255 255 255 / 86%); color: #0f172a; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.wework-stage__identity small { color: #64748b; font-size: 10px; white-space: nowrap; }
+.wework-stage__identity { position: absolute; top: calc(100% + 8px); left: 50%; display: grid; min-width: max-content; gap: 3px; transform: translateX(-50%); text-align: center; pointer-events: none; }
+.wework-stage__identity strong { max-width: 150px; padding: 3px 9px; overflow: hidden; border-radius: 99px; background: rgb(255 255 255 / 92%); color: #0f172a; box-shadow: 0 3px 10px rgb(15 23 42 / 7%); font-size: 12px; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
+.wework-stage__identity small { color: #64748b; font-size: 10px; line-height: 1.2; white-space: nowrap; }
 .wework-stage__control { position: absolute; top: 50%; z-index: 2000; display: grid; width: 38px; height: 38px; place-items: center; padding: 0; border: 1px solid #e2e8f0; border-radius: 8px; background: rgb(255 255 255 / 90%); color: #64748b; transform: translateY(-50%); box-shadow: 0 8px 18px -12px rgb(16 24 40 / 40%); cursor: pointer; }
 .wework-stage__control:hover { border-color: #c7000b; color: #c7000b; }
 .wework-stage__control--left { left: 18px; }
@@ -137,3 +143,168 @@ html.wework-desktop .h-screen { height: calc(100vh - 38px); }
 ::view-transition-group(employee-workbench) { overflow: hidden; border-radius: 16px; animation-duration: 260ms; animation-timing-function: cubic-bezier(.2, .8, .2, 1); }
 ::view-transition-old(employee-workbench),
 ::view-transition-new(employee-workbench) { height: 100%; width: 100%; object-fit: cover; animation-duration: 260ms; }
+
+/* Keep operational controls reachable when the desktop window is narrowed. */
+@media (max-width: 900px) {
+  .wework-stage-header { height: auto; min-height: 56px; flex-wrap: wrap; gap: 8px; padding: 12px 16px; }
+  .wework-stage-header > div:last-child { max-width: 100%; overflow-x: auto; }
+  .wework-stage-header button { flex-shrink: 0; white-space: nowrap; }
+  .wework-round-layout { flex-direction: column; overflow-y: auto; }
+  .wework-round-stage { min-height: 320px; flex-shrink: 0; }
+  .wework-round-layout > [role="separator"] { display: none; }
+  .wework-round-pending { width: 100% !important; min-height: 280px; }
+  .wework-team-management > div > div:first-child { flex-wrap: wrap; }
+  .wework-team-management nav { max-width: 100%; overflow-x: auto; }
+  .wework-team-management nav button { flex-shrink: 0; white-space: nowrap; }
+}
+
+.project-board { overflow-x:auto; padding-bottom:1rem; }
+.project-board section.board-drop-target { background:#e0f2fe; outline:2px dashed #38bdf8; outline-offset:-2px; }
+.board-drag-handle { touch-action:none; cursor:grab; display:flex; gap:.5rem; text-align:left; user-select:none; }
+.board-drag-handle:active { cursor:grabbing; }
+.gantt-scroll { overflow:auto; }
+.gantt-calendar,.gantt-timeline-row { display:flex; }
+.gantt-calendar > span,.gantt-item { width:260px; flex-shrink:0; position:sticky; left:0; background:white; z-index:2; padding:12px; border-right:1px solid #e2e8f0; }
+.gantt-calendar > div { display:flex; background:#f8fafc; }
+.gantt-calendar time { flex-shrink:0; text-align:center; font-size:10px; padding-top:15px; border-right:1px solid #e2e8f0; }
+.gantt-timeline-row { border-top:1px solid #e2e8f0; min-height:84px; font-size:12px; }
+.gantt-item > div { display:flex; gap:4px; margin-top:8px; }
+.gantt-item input { width:115px; font-size:10px; border:1px solid #e2e8f0; border-radius:4px; padding:3px; }
+.gantt-track { position:relative; flex-shrink:0; background:repeating-linear-gradient(to right,transparent 0,transparent 35px,#f1f5f9 35px,#f1f5f9 36px); }
+.gantt-bar { position:absolute; top:24px; height:32px; display:flex; background:#0284c7; color:white; border-radius:6px; box-shadow:0 2px 5px #0f172a15; }
+.gantt-bar button { touch-action:none; user-select:none; cursor:grab; overflow:hidden; white-space:nowrap; }
+.gantt-bar button:first-child { flex:1; text-align:left; padding:0 8px; text-overflow:ellipsis; }
+.gantt-bar button:last-child { width:16px; flex-shrink:0; cursor:ew-resize; border-left:1px solid #ffffff60; }
+@media(max-width:600px) { .gantt-item,.gantt-calendar > span { position:static; } }
+.project-item-detail { width:min(460px,48%); flex-shrink:0; overflow-y:auto; padding:24px; border-left:1px solid #e2e8f0; background:white; box-shadow:-8px 0 32px #0f172a08; }
+.detail-property { display:grid; grid-template-columns:80px minmax(0,1fr); align-items:center; gap:12px; color:#64748b; }
+.detail-property input,.detail-property select { min-width:0; border:1px solid #e2e8f0; border-radius:6px; padding:7px; color:#334155; background:white; }
+@media(max-width:700px) { .project-item-detail { position:absolute; inset:0; width:100%; z-index:30; } }
+.project-row { min-width:1060px; grid-template-columns:minmax(210px,1.2fr) 115px 120px 85px 140px minmax(230px,1.5fr); gap:12px; }
+
+/* Keep employee settings compact enough to scan in the workbench side panel. */
+.employee-config-fields > section { border-radius: 0; border-width: 0 0 1px; padding: 12px 0; background: transparent; }
+.employee-config-fields > section > .mt-4 { margin-top: 10px; }
+.employee-config-fields input:not([type="checkbox"]), .employee-config-fields select { padding-top: 7px; padding-bottom: 7px; }
+.employee-config-fields textarea { min-height: 72px; }
+
+/* The ring remains mounted at idle so state changes fade rather than pop. */
+.wework-stage__status-ring { position:absolute; inset:-5%; pointer-events:none; border:2px solid currentColor; border-radius:50%; color:#0ea5e9; opacity:0; transition:opacity 250ms ease,color 250ms ease; }
+.wework-stage__employee[data-work-status="working"] .wework-stage__status-ring { opacity:1; color:#0ea5e9; }
+.wework-stage__employee[data-work-status="waiting"] .wework-stage__status-ring { opacity:1; color:#f59e0b; }
+.wework-stage__employee[data-work-status="error"] .wework-stage__status-ring { opacity:1; color:#ef4444; }
+.wework-stage__status-ring > span { position:absolute; inset:-2px; border:2px solid transparent; border-top-color:currentColor; border-radius:50%; opacity:0; transition:opacity 250ms ease; }
+.wework-stage__employee[data-work-status="working"] .wework-stage__status-ring > span { opacity:1; animation:wework-ring-flow 3s linear infinite; }
+.wework-stage__employee[data-work-status="waiting"] .wework-stage__status-ring > span { border-color:currentColor; animation:wework-ring-breathe 2.4s ease-in-out infinite; }
+@keyframes wework-ring-flow { to { transform:rotate(360deg); } }
+@keyframes wework-ring-breathe { 0%,100% {opacity:.15;transform:scale(1)} 50% {opacity:.6;transform:scale(1.04)} }
+.wework-stage__work-tooltip { position:absolute; bottom:calc(100% + 16px); left:50%; width:230px; transform:translate(-50%,4px); display:grid; gap:5px; padding:12px 13px; border:1px solid #e2e8f0; border-radius:12px; background:rgb(255 255 255 / 97%); color:#334155; box-shadow:0 12px 32px -12px rgb(15 23 42 / 24%); text-align:left; font-size:12px; line-height:1.45; opacity:0; visibility:hidden; pointer-events:none; transition:opacity 150ms ease,transform 150ms ease,visibility 150ms; }
+.wework-stage__work-tooltip strong { width:max-content; border-radius:999px; padding:2px 7px; background:#f1f5f9; color:#475569; font-size:10px; line-height:1.4; }
+.wework-stage__employee[data-work-status="working"] .wework-stage__work-tooltip strong { background:#e0f2fe; color:#0369a1; }
+.wework-stage__employee[data-work-status="waiting"] .wework-stage__work-tooltip strong { background:#fef3c7; color:#b45309; }
+.wework-stage__employee[data-work-status="error"] .wework-stage__work-tooltip strong { background:#fee2e2; color:#b91c1c; }
+.wework-stage__work-tooltip > span { color:#334155; font-weight:600; }
+.wework-stage__work-tooltip small { color:#64748b; white-space:normal; overflow-wrap:anywhere; max-height:100px; overflow:hidden; }
+.wework-stage__employee:has(.wework-stage__employee-button:hover),.wework-stage__employee:has(.wework-stage__employee-button:focus-visible) { z-index:2100 !important; }
+.wework-stage__avatar:hover ~ .wework-stage__work-tooltip,.wework-stage__employee-button:focus-visible .wework-stage__work-tooltip { opacity:1;visibility:visible;transform:translate(-50%,0); }
+@media(prefers-reduced-motion:reduce) { .wework-stage__status-ring,.wework-stage__status-ring > span,.wework-stage__work-tooltip {transition:none;animation:none !important;} }
+.wework-stage__employee[data-work-status="working"] .wework-stage__status-ring { border-color:color-mix(in srgb,currentColor 25%,transparent); }
+
+.wework-stage__work-tooltip { margin-left:var(--work-tooltip-offset,0px); }
+.wework-stage__employee-button[data-tooltip-below="true"] .wework-stage__work-tooltip { bottom:auto; top:calc(100% + 48px); }
+
+/* Keep every header action visible when the available workspace narrows. */
+html.wework-desktop .wework-stage-header > div:last-child {
+  flex-wrap: wrap;
+  overflow: visible;
+}
+html.wework-desktop .wework-stage-header .ww-view-switcher {
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+/* The collapsed sidebar toggle extends over header padding. That padding must
+   remain clickable: Electron drag regions intercept real pointer events. */
+html.wework-desktop .wework-stage-header { -webkit-app-region: no-drag; }
+html.wework-desktop .wework-stage-header > div:first-child { -webkit-app-region: drag; }
+html.wework-desktop aside[data-collapsed="true"] .wework-window-controls { -webkit-app-region: no-drag; }
+
+/* Keep the sidebar toggle beside the native window controls in both states. */
+html.wework-desktop .wework-window-controls button {
+  position: fixed; left: 100px; top: 12px; width: 36px; height: 36px;
+  border: 1px solid #e2e8f0; border-radius: 11px; background: #fff;
+  box-shadow: 0 1px 2px #0f172a0d; transition: color 150ms ease, background 150ms ease, border-color 150ms ease;
+}
+html.wework-desktop .wework-window-controls button:hover { color: #0369a1; background: #f0f9ff; border-color: #bae6fd; }
+html.wework-desktop aside[data-collapsed="true"] .wework-window-controls button { left: 100px; top: 12px; }
+
+/* A continuous desktop toolbar; sidebar dividers begin below it. */
+html.wework-desktop aside[data-collapsed] { border-right: 0; box-shadow: none; }
+html.wework-desktop aside[data-collapsed]::after {
+  content: ""; position: absolute; top: 60px; right: 0; bottom: 0;
+  width: 1px; background: #e2e8f0; pointer-events: none;
+}
+html.wework-desktop .wework-window-controls {
+  height: 60px; background: #fff; border-bottom: 1px solid #e2e8f0;
+}
+html.wework-desktop .wework-stage-header {
+  min-height: 60px; padding-top: 11px; padding-bottom: 11px; background: #fff; backdrop-filter: none; border-bottom-color: #e2e8f0;
+}
+html.wework-desktop aside[data-collapsed="true"] + main > .wework-stage-header { padding-left: 88px; }
+html.wework-desktop .wework-stage-header .stage-team-summary { min-height: 38px; }
+
+/* Round-table workspace: one neutral surface, without an outer card. */
+.wework-round-layout { background: #eef0f2; }
+.wework-round-stage, .wework-round-stage .wework-stage { background: transparent; border: 0; border-radius: 0; box-shadow: none; }
+
+/* Match the sidebar rail to the rendered toolbar, including wrapped actions. */
+html.wework-desktop .wework-window-controls { height: var(--wework-toolbar-height, 60px); }
+html.wework-desktop aside[data-collapsed]::after { top: var(--wework-toolbar-height, 60px); }
+html.wework-desktop .wework-window-controls button {
+  background: transparent; border-color: transparent; box-shadow: none; color: #64748b;
+}
+html.wework-desktop .wework-window-controls button:hover {
+  background: #f1f5f9; border-color: transparent; color: #334155;
+}
+
+/* Round-table motion shares a restrained, interruptible easing curve. */
+.wework-round-layout { --round-ease: cubic-bezier(.22,1,.36,1); }
+.round-drawer-shell {
+  display: flex; flex: 0 0 auto; min-width: 0; overflow: visible;
+}
+.round-drawer-shell > .wework-round-pending { height: 100%; }
+.round-drawer-resize-zone { touch-action: none; }
+.round-drawer-resize-zone::after { content:""; position:absolute; inset-block:0; left:50%; width:1px; transform:translateX(-50%); background:transparent; transition:background-color 160ms ease; }
+.round-drawer-resize-zone:hover::after,
+.wework-round-layout[data-resizing="true"] .round-drawer-resize-zone::after { background:rgb(14 165 233 / 18%); }
+.wework-round-layout[data-resizing="true"] { cursor:col-resize; user-select:none; }
+
+/* Drawer actions use the app-wide Lucide action size: 40px target, 22px bold glyph. */
+.pending-work-drawer button[title="新建待办"],
+.pending-work-drawer button[title="关闭群聊"],
+.pending-work-drawer button[title="关闭待办"] {
+  width:40px; height:40px; min-width:40px; border-radius:12px; color:#fff;
+  box-shadow:0 5px 12px rgb(15 23 42 / 18%);
+}
+.pending-work-drawer button[title="新建待办"] { border-color:#e11d48; background:#e11d48; }
+.pending-work-drawer button[title="新建待办"]:hover { border-color:#be123c; background:#be123c; }
+.pending-work-drawer button[title="关闭群聊"],
+.pending-work-drawer button[title="关闭待办"] { border-color:#334155; background:#334155; }
+.pending-work-drawer button[title="关闭群聊"]:hover,
+.pending-work-drawer button[title="关闭待办"]:hover { border-color:#1e293b; background:#1e293b; }
+.pending-work-drawer button[title="新建待办"] svg,
+.pending-work-drawer button[title="关闭群聊"] svg,
+.pending-work-drawer button[title="关闭待办"] svg { width:22px; height:22px; stroke-width:2.75; }
+.wework-stage__avatar { transition: transform 200ms cubic-bezier(.22,1,.36,1); }
+.wework-stage[data-mode="topDown"] .wework-stage__employee-button:hover .wework-stage__avatar { transform: scale(1.05); }
+.wework-stage[data-mode="topDown"] .wework-stage__employee-button:active .wework-stage__avatar { transform: scale(.98); }
+.wework-stage__add-surface { transition: transform 180ms ease, background-color 180ms ease, border-color 180ms ease; }
+.wework-stage__employee-button:hover .wework-stage__add-surface { transform: scale(1.04); }
+.wework-stage__employee-button:active .wework-stage__add-surface { transform: scale(.98); }
+@media(max-width:900px) {
+  .round-drawer-shell { width: 100% !important; flex-direction: column; flex-shrink: 0; transition: opacity 180ms ease; }
+}
+@media(prefers-reduced-motion:reduce) {
+  .round-drawer-shell, .wework-stage__avatar, .wework-stage__add-surface { transition: none !important; animation: none !important; }
+  .wework-stage__employee-button:hover .wework-stage__avatar, .wework-stage__employee-button:hover .wework-stage__add-surface { transform: none !important; }
+}

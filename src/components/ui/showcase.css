@@ -1,0 +1,20 @@
+.ww-kit { min-height: 100dvh; color: var(--ww-text); background: var(--ww-canvas); font-size: 13px; }
+.ww-kit-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 20px 32px; border-bottom: 1px solid var(--ww-border); background: white; }
+.ww-kit-brand, .ww-kit-back { display: flex; align-items: center; gap: 12px; }
+.ww-kit-brand strong { font-size: 19px; }.ww-kit-brand > span { border-left: 1px solid var(--ww-border); padding-left: 12px; color: #64748b; }
+.ww-kit-back { color: #64748b; font-size: 12px; }
+.ww-kit-layout { display: grid; grid-template-columns: 180px minmax(0, 1fr); max-width: 1200px; margin: auto; }
+.ww-kit-nav { display: flex; flex-direction: column; gap: 8px; padding: 40px 24px; align-self: start; position: sticky; top: 0; }
+.ww-kit-nav > span { font-size: 11px; color: #64748b; margin-bottom: 8px; }.ww-kit-nav a { padding: 8px; border-radius: 8px; }.ww-kit-nav a:hover { background: var(--ww-muted); }
+.ww-kit-content { padding: 40px 32px 80px; min-width: 0; }
+.ww-kit-intro { margin-bottom: 36px; }.ww-kit-intro h1 { margin: 16px 0 12px; font-size: 28px; font-weight: 650; letter-spacing: -.03em; }.ww-kit-intro p { max-width: 650px; color: #64748b; line-height: 1.8; }
+.ww-kit-section { scroll-margin-top: 20px; margin-top: 24px; border: 1px solid var(--ww-border); border-radius: var(--ww-radius-panel); background: white; }
+.ww-kit-section > header { padding: 20px 24px; border-bottom: 1px solid var(--ww-border); }.ww-kit-section h2 { font-size: 16px; font-weight: 650; }.ww-kit-section header p { margin-top: 6px; color: #64748b; font-size: 12px; line-height: 1.6; }.ww-kit-section > div { padding: 24px; }
+.ww-kit-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 20px; }.ww-kit-row:last-child { margin-bottom: 0; }
+.ww-kit-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); align-items: start; gap: 24px; margin-bottom: 24px; }.ww-kit-grid:last-child { margin-bottom: 0; }
+.ww-kit-select > span { display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px; color: var(--ww-secondary); }
+.ww-kit-swatches { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 16px; }.ww-kit-swatches > div { display: grid; gap: 8px; }.ww-kit-swatches span { height: 48px; border-radius: 8px; border: 1px solid var(--ww-border); }.ww-kit-swatches code { font-size: 10px; color: #64748b; overflow-wrap: anywhere; }.ww-kit-caption { margin-top: 24px; font-size: 12px; color: #64748b; }.ww-kit-feedback { min-height: 18px; color: #047857; font-size: 12px; }
+.ww-kit-composer { max-width: 640px; }.ww-kit .ww-tabs [role="tabpanel"] { font-size: 12px; color: #64748b; }
+/* The app shell locks body scrolling; the standalone catalog needs document scrolling. */
+html:has(.ww-kit) body { height: auto; min-height: 100%; overflow-x: hidden; overflow-y: auto; }
+@media (max-width: 760px) { .ww-kit-layout { display: block; }.ww-kit-nav { position: static; flex-direction: row; flex-wrap: wrap; padding: 16px; }.ww-kit-nav > span { display: none; }.ww-kit-content { padding: 16px; }.ww-kit-header { padding: 16px; }.ww-kit-grid { grid-template-columns: 1fr; }.ww-kit-swatches { grid-template-columns: repeat(3,minmax(0,1fr)); }.ww-kit-intro h1 { font-size: 24px; } }

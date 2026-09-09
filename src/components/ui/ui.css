@@ -1,0 +1,65 @@
+/* Component-owned styles; page classes control placement, not visual variants. */
+.ww-button[data-variant] { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 12px; border: 1px solid transparent; }
+.ww-button[data-variant="primary"] { background: var(--ww-text); color: white; }
+.ww-button[data-variant="primary"]:hover:not(:disabled) { background: #1e293b; }
+.ww-button[data-variant="secondary"] { background: var(--ww-surface); color: var(--ww-secondary); border-color: var(--ww-border); }
+.ww-button[data-variant="secondary"]:hover:not(:disabled) { background: var(--ww-canvas); border-color: var(--ww-border-strong); }
+.ww-button[data-variant="ghost"] { background: transparent; color: var(--ww-secondary); }
+.ww-button[data-variant="ghost"]:hover:not(:disabled) { background: var(--ww-muted); }
+.ww-button[data-variant="danger"] { background: #fff1f2; color: #be123c; border-color: #fecdd3; }
+.ww-button[data-variant="danger"]:hover:not(:disabled) { background: #ffe4e6; }
+.ww-button[data-size="sm"] { min-height: 32px; padding: 5px 10px; }
+.ww-button[data-size="md"] { min-height: 36px; }
+.ww-button[data-size="icon"] { width: 32px; height: 32px; padding: 0; flex-shrink: 0; }
+.ww-spinner { width: 14px; height: 14px; flex-shrink: 0; animation: ww-spin 1s linear infinite; }
+@keyframes ww-spin { to { transform: rotate(360deg); } }
+.ww-field { display: grid; gap: 6px; min-width: 0; }
+.ww-field > label { font-size: var(--ww-font-control); font-weight: 600; color: var(--ww-secondary); }
+.ww-field-hint, .ww-field-error { margin: 0; font-size: var(--ww-font-caption); line-height: 1.5; }
+.ww-field-hint { color: #64748b; }
+.ww-field-error { color: #be123c; }
+[data-ui="field"][aria-invalid="true"] { border-color: #e11d48; }
+.ww-badge { display: inline-flex; align-items: center; gap: 4px; width: fit-content; white-space: nowrap; padding: 2px 8px; border-radius: 999px; font-size: var(--ww-font-caption); line-height: 1.5; font-weight: 600; background: var(--ww-muted); color: var(--ww-secondary); }
+.ww-badge[data-tone="info"] { background: #f0f9ff; color: #0369a1; }
+.ww-badge[data-tone="success"] { background: #ecfdf5; color: #047857; }
+.ww-badge[data-tone="warning"] { background: #fffbeb; color: #b45309; }
+.ww-badge[data-tone="danger"] { background: #fff1f2; color: #be123c; }
+.ww-dialog-overlay { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 16px; }
+.ww-dialog { width: 100%; max-width: 448px; max-height: calc(100dvh - 32px); overflow-y: auto; background: var(--ww-surface); padding: 24px; }
+.ww-dialog[data-size="lg"] { max-width: 1024px; }
+.ww-dialog-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding-bottom: 16px; margin-bottom: 16px; border-bottom: 1px solid var(--ww-border); }
+.ww-dialog-header h3 { margin: 0; }
+.ww-dialog-header p { font-size: var(--ww-font-caption); color: #64748b; margin: 4px 0 0; }
+.ww-dialog-footer { display: flex; justify-content: flex-end; gap: 8px; padding-top: 12px; margin-top: 16px; border-top: 1px solid var(--ww-border); }
+.ww-tab-list { display: flex; gap: 4px; border-bottom: 1px solid var(--ww-border); overflow-x: auto; }
+.ww-tab-list [role="tab"] { padding: 10px 12px; white-space: nowrap; border-bottom: 2px solid transparent; font-size: var(--ww-font-control); font-weight: 600; color: #64748b; }
+.ww-tab-list [aria-selected="true"] { color: var(--ww-text); border-color: var(--ww-text); }
+.ww-tab-list :disabled { opacity: .45; }
+.ww-tabs [role="tabpanel"] { padding-top: 16px; }
+.ww-tooltip-anchor { position: relative; display: inline-flex; }
+.ww-tooltip { display: none; position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); z-index: 210; width: max-content; max-width: min(240px, 80vw); border-radius: 6px; padding: 6px 8px; background: var(--ww-text); color: white; font-size: var(--ww-font-caption); line-height: 1.5; }
+.ww-tooltip-anchor:not([data-dismissed]):is(:hover, :focus-within) .ww-tooltip { display: block; }
+@media (prefers-reduced-motion: reduce) { .ww-spinner { animation: none; } }
+.ww-dialog-heading { display: flex; gap: 8px; align-items: center; }
+.ww-view-switcher { display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: var(--ww-radius-control); border: 1px solid var(--ww-border); background: var(--ww-muted); }
+.ww-view-switcher button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 32px; padding: 4px 12px; white-space: nowrap; border-radius: 6px; color: #64748b; font-size: var(--ww-font-control); font-weight: 600; }
+.ww-view-switcher button:hover { color: var(--ww-text); }
+.ww-view-switcher [aria-current="page"] { background: var(--ww-surface); color: var(--ww-text); box-shadow: var(--ww-shadow-panel); }
+.ww-select-trigger { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 6px 0; text-align: left; }
+.ww-select-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ww-select-icon { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; }
+.ww-select-trigger > svg, .ww-select-menu button > svg { flex-shrink: 0; }
+.ww-select-menu { position: fixed; z-index: 200; overflow: auto; border: 1px solid var(--ww-border); background: var(--ww-surface); padding: 6px; color: var(--ww-secondary); font-size: var(--ww-font-control); }
+.ww-select-menu button { display: flex; align-items: center; gap: 8px; width: 100%; border-radius: 8px; padding: 8px 10px; text-align: left; }
+.ww-select-menu button:is(:hover, :focus) { background: #f0f9ff; color: var(--ww-accent); outline-offset: -2px; }
+/* FormSelect keeps a native form control for values and validity, never for popup rendering. */
+.ww-select-native { position: absolute; width: 1px; height: 1px; padding: 0; border: 0; clip-path: inset(50%); overflow: hidden; opacity: 0; pointer-events: none; }
+.ww-select-trigger { font-weight: 400; }
+.ww-select-trigger[data-appearance="field"] { min-height: var(--ww-control-height); border: 1px solid var(--ww-border-strong); background: var(--ww-surface); padding: 7px 10px; color: var(--ww-text); }
+.ww-select-trigger[data-appearance="field"]:hover:not(:disabled) { border-color: #94a3b8; }
+.ww-select-trigger:focus-visible { outline: 2px solid rgb(2 132 199 / 18%); outline-offset: 1px; border-color: var(--ww-focus); }
+.ww-select-trigger:disabled { opacity: 1; color: #94a3b8; }
+.ww-select-trigger[data-appearance="field"]:disabled { background: var(--ww-muted); border-color: var(--ww-border); }
+.ww-select-trigger[data-appearance="field"][aria-invalid="true"] { border-color: #e11d48; }
+.ww-select-menu { box-shadow: 0 8px 24px rgb(15 23 42 / 10%), 0 2px 6px rgb(15 23 42 / 4%); }
+.ww-select-menu button:disabled { color: #94a3b8; background: transparent; cursor: not-allowed; }

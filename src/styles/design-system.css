@@ -1,0 +1,178 @@
+/* WeWork UI contract. Imported after the legacy scene stylesheet so operational
+   controls share one treatment without changing canvas geometry or status colors. */
+:root {
+  --ww-font-caption: 11px;
+  --ww-font-control: 12px;
+  --ww-font-section: 14px;
+  --ww-font-title: 18px;
+  --ww-space-1: 4px;
+  --ww-space-2: 8px;
+  --ww-space-3: 12px;
+  --ww-space-4: 16px;
+  --ww-space-6: 24px;
+  --ww-canvas: #f8fafc;
+  --ww-surface: #ffffff;
+  --ww-muted: #f1f5f9;
+  --ww-border: #e2e8f0;
+  --ww-border-strong: #cbd5e1;
+  --ww-text: #0f172a;
+  --ww-secondary: #475569;
+  --ww-accent: #0369a1;
+  --ww-focus: #0284c7;
+  --ww-radius-control: 8px;
+  --ww-radius-panel: 12px;
+  --ww-radius-dialog: 16px;
+  --ww-control-height: 36px;
+  --ww-shadow-panel: 0 1px 3px rgb(15 23 42 / 5%);
+  --ww-shadow-dialog: 0 24px 80px -20px rgb(15 23 42 / 28%);
+}
+body { color: var(--ww-text); background: var(--ww-canvas); }
+:where(button, a, input, textarea, select, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--ww-focus);
+  outline-offset: 3px;
+}
+:where(button, input, select, textarea):disabled {
+  cursor: not-allowed;
+}
+[data-ui="button"] {
+  min-height: 32px;
+  border-radius: var(--ww-radius-control);
+  font-size: var(--ww-font-control);
+  line-height: 1.5;
+  font-weight: 600;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+[data-ui="button"]:disabled { opacity: .45; }
+[data-ui="button"]:focus-visible {
+  outline: 2px solid var(--ww-focus);
+  outline-offset: 3px;
+}
+[data-ui="field"] {
+  min-width: 0;
+  min-height: var(--ww-control-height);
+  border: 1px solid var(--ww-border-strong);
+  border-radius: var(--ww-radius-control);
+  background-color: var(--ww-surface);
+  color: var(--ww-text);
+  padding: 7px 10px;
+  font-size: var(--ww-font-control);
+  line-height: 1.5;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+[data-ui="field"]::placeholder { color: #64748b; opacity: 1; }
+[data-ui="field"]:hover:not(:disabled) { border-color: #94a3b8; }
+[data-ui="field"]:focus {
+  border-color: var(--ww-focus);
+  outline: 2px solid rgb(2 132 199 / 18%);
+  outline-offset: 1px;
+  box-shadow: none;
+}
+[data-ui="field"]:disabled { background-color: var(--ww-muted); color: #64748b; }
+textarea[data-ui="field"] { resize: vertical; }
+.ww-dialog-backdrop { background: rgb(15 23 42 / 36%); backdrop-filter: blur(3px); }
+[role="dialog"][aria-modal="true"] {
+  border: 1px solid var(--ww-border);
+  border-radius: var(--ww-radius-dialog);
+  box-shadow: var(--ww-shadow-dialog);
+}
+[role="dialog"]:focus { outline: none; }
+[role="dialog"] h3 { font-size: var(--ww-font-title); line-height: 1.4; font-weight: 650; }
+.ww-select-trigger { min-height: 32px; }
+.ww-select-menu { border-radius: var(--ww-radius-panel); box-shadow: var(--ww-shadow-dialog); }
+.ww-select-menu [role="option"] { min-height: 36px; }
+.ww-select-menu [aria-selected="true"] { background: #f0f9ff; color: var(--ww-accent); }
+.ww-composer-surface {
+  border: 1px solid var(--ww-border-strong);
+  border-radius: var(--ww-radius-panel);
+  background: var(--ww-surface);
+  box-shadow: var(--ww-shadow-panel);
+}
+.ww-composer-surface textarea[data-ui="field"] {
+  padding: 4px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  resize: none;
+  outline: none;
+  box-shadow: none;
+}
+.ww-composer-send {
+  width: 36px;
+  height: 36px;
+}
+#team-drawer-chat {
+  position: relative;
+}
+#team-drawer-chat > [aria-label="团队群聊消息"] {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 12px;
+}
+#team-drawer-chat > [aria-label="团队群聊消息"] > article:first-of-type {
+  margin-top: auto;
+}
+#team-drawer-chat > div:last-child {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
+  padding: 0 12px 12px;
+  border-top: 0;
+  background: transparent;
+}
+.ww-composer-surface-fade {
+  border-color: transparent;
+  background:
+    linear-gradient(rgb(255 255 255 / 88%), rgb(255 255 255 / 82%)) padding-box,
+    linear-gradient(180deg, rgb(14 165 233 / 68%), rgb(100 116 139 / 32%) 50%, rgb(225 29 72 / 64%)) border-box;
+  box-shadow: 0 14px 30px rgb(15 23 42 / 7%);
+  backdrop-filter: blur(10px);
+}
+.ww-composer-surface-fade:focus-within {
+  border-color: transparent;
+  background:
+    linear-gradient(rgb(255 255 255 / 92%), rgb(255 255 255 / 86%)) padding-box,
+    linear-gradient(180deg, rgb(14 165 233 / 88%), rgb(100 116 139 / 38%) 50%, rgb(225 29 72 / 82%)) border-box;
+  box-shadow: 0 14px 30px rgb(15 23 42 / 8%);
+}
+[aria-label="团队管理功能"] button:focus-visible {
+  border-radius: var(--ww-radius-control);
+  outline: none;
+  background: var(--ww-muted);
+  box-shadow: inset 0 -2px 0 var(--ww-focus);
+}
+[aria-label="新建待办"] + [aria-label="关闭待办抽屉"] {
+  margin-left: 8px;
+}
+.wework-stage-header [aria-current="page"] { background: var(--ww-surface); color: var(--ww-text); box-shadow: var(--ww-shadow-panel); }
+.project-table, .project-gantt { border-radius: var(--ww-radius-panel); box-shadow: var(--ww-shadow-panel); }
+.project-row:not(.project-head):hover { background-color: #f8fafc; }
+.project-head { font-size: var(--ww-font-caption); line-height: 1.5; letter-spacing: .02em; }
+.project-row:last-child { border-bottom: 0; }
+.project-board section { border: 1px solid var(--ww-border); border-radius: var(--ww-radius-panel); }
+.project-board article { border-radius: var(--ww-radius-control); box-shadow: var(--ww-shadow-panel); }
+.project-board article:hover { border-color: var(--ww-border-strong); }
+.project-create button[type="button"] { color: var(--ww-secondary); background: white; border: 1px solid var(--ww-border-strong); }
+.gantt-item input[data-ui="field"] { min-height: 32px; width: 115px; padding: 4px; font-size: var(--ww-font-caption); }
+.project-row .project-colored-field input[data-ui="field"] { border: 0; background: transparent; color: inherit; padding: 4px 0; }
+.project-filters .ww-select-trigger { width: 160px; }
+.project-row textarea.project-description[data-ui="field"] { width: 100%; max-width: 260px; height: 36px; min-height: 36px; resize: none; border-color: transparent; background: transparent; box-shadow: none; }
+.project-row textarea.project-description[data-ui="field"]:hover { border-color: var(--ww-border); }
+.project-row textarea.project-description[data-ui="field"]:focus { height: 36px; border-color: var(--ww-focus); background: var(--ww-surface); }
+@media (max-width: 640px) {
+  .ww-dialog-backdrop { padding: 8px; }
+  [role="dialog"][aria-modal="true"] { max-height: calc(100dvh - 16px); }
+  [role="dialog"] input[data-ui="field"], [role="dialog"] select[data-ui="field"], [role="dialog"] textarea[data-ui="field"] { font-size: 16px; }
+  .project-create { flex-wrap: wrap; }
+  .project-create input { flex-basis: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-ui], .ww-composer-surface { transition: none; }
+}
+/* Supporting copy remains readable on white and slate-50 surfaces. */
+.text-slate-400 { color: #64748b; }
+:where(input[type="checkbox"], input[type="radio"]) { accent-color: var(--ww-accent); }
+
+/* Text selection is a neutral browser-style highlight, independent of brand colors. */
+::selection { background: #b8d3f2; color: #0f172a; }
+
+.project-table .project-row { grid-template-columns: minmax(210px,1.2fr) 115px 120px 85px 140px minmax(180px,1fr) 28px; }

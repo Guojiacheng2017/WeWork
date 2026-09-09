@@ -4,14 +4,14 @@ import type { WeWorkTeam, WorkItem } from '../../domain/wework';
 import { portalPageMeta, servicePages, type PortalPage } from '../../domain/portalNavigation';
 
 const allWorks = (team?: WeWorkTeam) => team ? [
-  ...team.pendingWorks,
+  ...team.pendingWorks, ...(team.completedWorks ?? []),
   ...team.employees.flatMap((employee) => [employee.currentWorkItem, ...(employee.queuedWorkItems ?? []), ...(employee.completedWorkItems ?? [])].filter(Boolean) as WorkItem[]),
 ] : [];
 
 const StatusPill: React.FC<{ status: WorkItem['status'] }> = ({ status }) => {
   const labels = { pending: '待匹配', running: '执行中', completed: '已完成', blocked: '已阻塞' } as const;
   const tone = status === 'completed' ? 'bg-emerald-50 text-emerald-700' : status === 'running' ? 'bg-sky-50 text-sky-700' : status === 'blocked' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700';
-  return <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${tone}`}>{labels[status]}</span>;
+  return <span className={`rounded-full px-2 py-1 text-[11px] font-bold ${tone}`}>{labels[status]}</span>;
 };
 
 export const PortalPageView: React.FC<{ page: PortalPage; team?: WeWorkTeam }> = ({ page, team }) => {
@@ -26,7 +26,7 @@ export const PortalPageView: React.FC<{ page: PortalPage; team?: WeWorkTeam }> =
     <div className="mx-auto max-w-6xl">
       <div className="mb-6 flex items-end justify-between gap-4">
         <div><p className="mb-1 text-xs font-bold text-rose-700">{meta.group}</p><h2 className="text-2xl font-bold tracking-tight text-slate-900">{meta.title}</h2><p className="mt-2 text-sm text-slate-500">{meta.description}</p></div>
-        <div className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-right shadow-sm"><span className="block text-[10px] font-bold text-slate-400">当前团队</span><strong className="text-sm text-slate-800">{team?.name ?? '暂无团队'}</strong></div>
+        <div className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-right shadow-sm"><span className="block text-[11px] font-bold text-slate-400">当前团队</span><strong className="text-sm text-slate-800">{team?.name ?? '暂无团队'}</strong></div>
       </div>
 
       {!isPerformance && <div className="mb-6 grid grid-cols-5 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">

@@ -17,6 +17,23 @@ export const EMPLOYEE_ANCHOR_HEIGHT = 0.72;
 export const EYE_LEVEL_CAMERA_RADIUS = 7.8;
 export const TOP_DOWN_CAMERA_RADIUS = 13.4;
 export const CAMERA_FOV = 38;
+export const STAGE_CAMERA_SETTLE_TOLERANCE = 0.002;
+
+export type StageCameraCoordinates = {
+  polar: number;
+  radius: number;
+  azimuth: number;
+};
+
+export function isStageCameraSettled(
+  current: StageCameraCoordinates,
+  target: StageCameraCoordinates,
+  tolerance = STAGE_CAMERA_SETTLE_TOLERANCE,
+) {
+  return Math.abs(current.polar - target.polar) < tolerance
+    && Math.abs(current.radius - target.radius) < tolerance
+    && Math.abs(current.azimuth - target.azimuth) < tolerance;
+}
 
 export function getCameraPolar(mode: StageMode) {
   return mode === "topDown" ? 0.08 : 1.22;
@@ -83,4 +100,23 @@ export function getEyeLevelSeatVisibility(index: number, selectedIndex: number, 
   if (angle >= Math.PI * 0.88) return { visible: false, opacity: 0 };
   if (angle > Math.PI * 0.52) return { visible: true, opacity: 0.32 };
   return { visible: true, opacity: 1 };
+}
+
+// Demand rendering includes the time spent idle in its next delta. That time
+// must not advance a newly requested camera transition.
+export function stageAnimationDelta(delta: number) {
+  return Math.min(Math.max(delta, 0), 1 / 30);
+}
+
+export function getAnimatedSeatPresentation(index: number, count: number, cameraAzimuth: number, eyeLevelProgress: number) {
+  const angle = getEmployeeAzimuth(index, count) - (cameraAzimuth - Math.PI);
+  const distance = Math.abs(Math.atan2(Math.sin(angle), Math.cos(angle)));
+  const seatDistance = count > 0 ? distance / (Math.PI * 2 / count) : 0;
+  const smooth = (value: number) => { const t = THREE.MathUtils.clamp(value, 0, 1); return t * t * (3 - 2 * t); };
+  const scale = seatDistance <= 1 ? THREE.MathUtils.lerp(1.34, 0.9, smooth(seatDistance)) : THREE.MathUtils.lerp(0.9, 0.7, smooth(seatDistance - 1));
+  const opacity = 1 - smooth((distance - Math.PI * 0.52) / (Math.PI * 0.36));
+  return {
+    scale: THREE.MathUtils.lerp(1, scale, eyeLevelProgress),
+    opacity: THREE.MathUtils.lerp(1, opacity, eyeLevelProgress),
+  };
 }
