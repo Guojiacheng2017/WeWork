@@ -1,4 +1,4 @@
-export const PROJECT_CAPABILITIES = ['issues', 'board', 'gantt', 'timeline', 'calendar', 'database', 'dag'] as const;
+export const PROJECT_CAPABILITIES = ['issues', 'board', 'gantt', 'timeline', 'calendar', 'database'] as const;
 export type ProjectCapability = typeof PROJECT_CAPABILITIES[number];
 
 export type TeamModuleRegistry = {
@@ -56,7 +56,7 @@ export function normalizeTeamModules(input: unknown): TeamModuleRegistry {
   if (input === undefined) return emptyTeamModules();
   const pm = (input as TeamModuleRegistry)?.projectManagement;
   if (!pm || typeof pm.installed !== 'boolean' || typeof pm.enabled !== 'boolean' || !Array.isArray(pm.capabilities)
-    || pm.capabilities.some((capability) => typeof capability !== 'string' || !capabilitySet.has(capability))) throw new Error('invalid team module registry');
+    || pm.capabilities.some((capability) => typeof capability !== 'string' || (!capabilitySet.has(capability) && (capability as string) !== 'dag'))) throw new Error('invalid team module registry');
   if (pm.enabled && !pm.installed) throw new Error('enabled module must be installed');
   let integration = pm.integration;
   if (integration !== undefined) {
@@ -70,7 +70,8 @@ export function normalizeTeamModules(input: unknown): TeamModuleRegistry {
   for (const [id, plugin] of Object.entries(plugins)) {
     if (!plugin || plugin.pluginId !== id || typeof plugin.version !== 'string' || typeof plugin.enabled !== 'boolean' || !Array.isArray(plugin.permissions) || !plugin.configuration || typeof plugin.configuration !== 'object') throw new Error('invalid team plugin installation');
   }
-  return { projectManagement: { installed: pm.installed, enabled: pm.enabled, capabilities: [...new Set(pm.capabilities)] }, plugins };
+  const capabilities = [...new Set(pm.capabilities)].filter((capability): capability is ProjectCapability => capabilitySet.has(capability));
+  return { projectManagement: { installed: pm.installed, enabled: pm.enabled, capabilities }, plugins };
 }
 
 export function createCollaborationDatabase(timestamp: string): CollaborationDatabase {

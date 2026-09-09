@@ -1,3 +1,4 @@
+import { Button, Input, NativeSelect, Textarea } from '../ui';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle, CheckCircle2, Clock, Focus, Maximize2, Minus, MousePointer2,
@@ -14,6 +15,7 @@ interface WorkflowDagStageProps {
   employees: WeWorkEmployee[];
   pendingPanelWidth: number;
   onPendingPanelWidthChange: (width: number) => void;
+  onOpenTeamChat: () => void;
 }
 type Point = { x: number; y: number };
 type NodePositions = Record<string, Point>;
@@ -64,12 +66,13 @@ function edgePath(from: Point, to: Point) {
   return `M ${startX} ${startY} C ${startX + bend} ${startY}, ${endX - bend} ${endY}, ${endX} ${endY}`;
 }
 
-export const WorkflowDagStage: React.FC<WorkflowDagStageProps> = ({ workflow, employees, pendingPanelWidth, onPendingPanelWidthChange }) => {
+export const WorkflowDagStage: React.FC<WorkflowDagStageProps> = ({ workflow, employees, pendingPanelWidth, onPendingPanelWidthChange, onOpenTeamChat }) => {
   const canvasRef = useRef<HTMLDivElement>(null);
   const [positions, setPositions] = useState<NodePositions>({});
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [nodePanelVisible, setNodePanelVisible] = useState(false);
+  const [nodePanelExpanded, setNodePanelExpanded] = useState(false);
   const [pendingPanelVisible, setPendingPanelVisible] = useState(true);
   const [createNodeAt, setCreateNodeAt] = useState<Point | null>(null);
   const [connectingFromNodeId, setConnectingFromNodeId] = useState<string | null>(null);
@@ -151,15 +154,16 @@ export const WorkflowDagStage: React.FC<WorkflowDagStageProps> = ({ workflow, em
   useEffect(() => {
     if (!inspectorOpen) return;
     setNodePanelVisible(true);
+    const frame = window.requestAnimationFrame(() => setNodePanelExpanded(true));
     const timer = window.setTimeout(() => fitView(pendingPanelWidth + 16), 0);
-    return () => window.clearTimeout(timer);
-  }, [inspectorOpen, pendingPanelVisible, pendingPanelWidth]);
+    return () => { window.cancelAnimationFrame(frame); window.clearTimeout(timer); };
+  }, [inspectorOpen]);
 
   if (!workflow) {
     return <div className="flex h-full w-full flex-col items-center justify-center bg-slate-50 text-slate-400">
       <ShieldCheck className="mb-2 h-12 w-12 text-slate-300" strokeWidth={1.5} />
       <p className="text-sm font-medium">当前团队尚未配置流程 DAG</p>
-      <button type="button" onClick={() => addWorkflowNode(selectedTeamId)} className="mt-4 flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white"><Plus className="h-4 w-4" />创建流程</button>
+      <Button variant="primary" type="button" onClick={() => { addWorkflowNode(selectedTeamId); const created = useWeWorkStore.getState().teams.find(team => team.id === selectedTeamId)?.workflow; if(created) void saveWorkflow(selectedTeamId, created); }} className="mt-4 flex items-center gap-1.5 px-3 py-2 text-xs"><Plus className="h-4 w-4" />创建流程</Button>
     </div>;
   }
 
@@ -168,6 +172,7 @@ export const WorkflowDagStage: React.FC<WorkflowDagStageProps> = ({ workflow, em
     if (current) void saveWorkflow(selectedTeamId, current);
   };
   const persistAfterLocalChange = () => window.setTimeout(persistCurrentWorkflow, 0);
+  const closeNodePanel = () => setNodePanelExpanded(false);
   const updateNodeAndSave = (nodeId: string, patch: Partial<RoleNode>) => {
     updateWorkflowNode(selectedTeamId, nodeId, patch);
     persistAfterLocalChange();
@@ -187,7 +192,7 @@ export const WorkflowDagStage: React.FC<WorkflowDagStageProps> = ({ workflow, em
     });
   };
   const resetView = () => { setZoom(0.9); setPan({ x: 24, y: 18 }); };
-  const fitView = (reservedWidth = pendingPanelVisible || nodePanelVisible ? pendingPanelWidth + 16 : 0) => {
+  const fitView = (reservedWidth = pendingPanelVisible || nodePanelExpanded ? pendingPanelWidth + 16 : 68) => {
     if (!canvasRef.current || nodes.length === 0) return;
     const points = nodes.map((node) => positions[node.id]).filter(Boolean);
     const minX = Math.min(...points.map((point) => point.x));
@@ -241,8 +246,6 @@ export const WorkflowDagStage: React.FC<WorkflowDagStageProps> = ({ workflow, em
       <h2 className="truncate text-sm font-bold text-slate-900">{workflow.name}</h2>
     </header>
 
-    {!pendingPanelVisible && !nodePanelVisible && <button type="button" onClick={() => setPendingPanelVisible(true)} className="absolute right-4 top-4 z-50 flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white/95 px-3 text-[11px] font-semibold text-slate-700 shadow-lg backdrop-blur transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl"><Plus className="h-3.5 w-3.5" />恢复待办任务</button>}
-
     <div className="relative flex h-full w-full flex-col overflow-hidden">
     <div className="relative flex h-full w-full flex-col overflow-hidden">
 
@@ -257,8 +260,8 @@ export const WorkflowDagStage: React.FC<WorkflowDagStageProps> = ({ workflow, em
       onDoubleClick={(event) => { if (event.target !== event.currentTarget) return; const rect = event.currentTarget.getBoundingClientRect(); setCreateNodeAt({ x: (event.clientX - rect.left - pan.x) / zoom - NODE_WIDTH / 2, y: (event.clientY - rect.top - pan.y) / zoom - NODE_HEIGHT / 2 }); setNewNodeLabel(`阶段 ${nodes.length + 1}`); setNewNodeEmployeeId(''); }}>
 
       <div className="absolute left-4 top-[68px] z-30 flex items-center gap-2">
-        <button type="button" onClick={applyAutoLayout} className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50"><Sparkles className="h-3.5 w-3.5" />自动布局</button>
-        <button type="button" onClick={() => { setSelectedNodeId(null); setInspectorOpen(true); }} className="flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50"><Settings2 className="h-3.5 w-3.5" />编辑流程</button>
+        <Button variant="secondary" type="button" onClick={applyAutoLayout} className="flex h-9 items-center gap-1.5 px-3 text-[11px]"><Sparkles className="h-3.5 w-3.5" />自动布局</Button>
+        <Button variant="secondary" type="button" onClick={() => { setSelectedNodeId(null); setInspectorOpen(true); }} className="flex h-9 items-center gap-1.5 px-3 text-[11px]"><Settings2 className="h-3.5 w-3.5" />编辑流程</Button>
       </div>
 
       <div className="pointer-events-none absolute inset-0" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>
@@ -312,7 +315,7 @@ export const WorkflowDagStage: React.FC<WorkflowDagStageProps> = ({ workflow, em
         <button type="button" aria-label="放大" onClick={() => setZoom((value) => Math.min(DAG_MAX_ZOOM, value + 0.1))} className="grid h-full w-9 place-items-center text-slate-500 hover:bg-slate-50"><Plus className="h-3.5 w-3.5" /></button><span className="h-5 w-px bg-slate-200" />
         <button type="button" aria-label="适应画布" onClick={() => fitView()} className="grid h-full w-9 place-items-center text-slate-500 hover:bg-slate-50"><Maximize2 className="h-3.5 w-3.5" /></button><button type="button" aria-label="重置视图" onClick={resetView} className="grid h-full w-9 place-items-center text-slate-500 hover:bg-slate-50"><RotateCcw className="h-3.5 w-3.5" /></button>
       </div>
-      <div className="absolute bottom-4 z-20 h-[98px] w-[180px] overflow-hidden rounded-lg border border-slate-200 bg-white/95 p-2 shadow-sm transition-[right] duration-200" style={{ right: pendingPanelVisible || nodePanelVisible ? pendingPanelWidth + 16 : 16 }} aria-label="流程小地图"><div className="relative h-full w-full cursor-move bg-slate-50"
+      <div className="absolute bottom-4 z-20 h-[98px] w-[180px] overflow-hidden rounded-lg border border-slate-200 bg-white/95 p-2 shadow-sm transition-[right] duration-300" style={{ right: pendingPanelVisible || nodePanelExpanded ? pendingPanelWidth + 16 : 68 }} aria-label="流程小地图"><div className="relative h-full w-full cursor-move bg-slate-50"
         onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); const rect = event.currentTarget.getBoundingClientRect(); const worldX = ((event.clientX - rect.left) / rect.width) * CANVAS_WIDTH; const worldY = ((event.clientY - rect.top) / rect.height) * CANVAS_HEIGHT; setPan({ x: canvasSize.width / 2 - worldX * zoom, y: canvasSize.height / 2 - worldY * zoom }); }}
         onPointerMove={(event) => { if (!event.currentTarget.hasPointerCapture(event.pointerId)) return; const rect = event.currentTarget.getBoundingClientRect(); const worldX = ((event.clientX - rect.left) / rect.width) * CANVAS_WIDTH; const worldY = ((event.clientY - rect.top) / rect.height) * CANVAS_HEIGHT; setPan({ x: canvasSize.width / 2 - worldX * zoom, y: canvasSize.height / 2 - worldY * zoom }); }}>
         {nodes.map((node) => positions[node.id] && <i key={node.id} className="absolute h-2.5 w-5 rounded-[2px] bg-slate-300" style={{ left: `${(positions[node.id].x / CANVAS_WIDTH) * 100}%`, top: `${(positions[node.id].y / CANVAS_HEIGHT) * 100}%` }} />)}
@@ -320,43 +323,41 @@ export const WorkflowDagStage: React.FC<WorkflowDagStageProps> = ({ workflow, em
       {connectingFromNodeId ? <div className="pointer-events-none absolute bottom-4 left-1/2 z-30 -translate-x-1/2"><span className="flex items-center gap-1.5 whitespace-nowrap rounded-full bg-sky-600 px-3 py-1.5 text-[10px] font-semibold text-white shadow-lg"><MousePointer2 className="h-3 w-3" />请选择下游节点左侧的输入端口</span></div> : !selectedNodeId && !inspectorOpen && !createNodeAt && <div className="pointer-events-none absolute bottom-4 left-1/2 z-30 -translate-x-1/2"><span className="flex items-center gap-1.5 whitespace-nowrap rounded-full bg-white/90 px-3 py-1.5 text-[10px] text-slate-400 shadow-sm"><MousePointer2 className="h-3 w-3" />拖拽节点调整布局 · 点击端口连接依赖 · 双击空白处创建节点</span></div>}
 
       {createNodeAt && <div className="absolute inset-0 z-50 grid place-items-center bg-slate-900/10" onPointerDown={(event) => event.stopPropagation()}><form className="dag-panel-content w-[380px] rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl" onSubmit={(event) => { event.preventDefault(); const employee = employees.find((item) => item.id === newNodeEmployeeId); const nodeId = addWorkflowNode(selectedTeamId, createNodeAt); updateWorkflowNode(selectedTeamId, nodeId, { label: newNodeLabel.trim() || `阶段 ${nodes.length + 1}`, assignedEmployeeId: employee?.id, roleName: employee?.roleName ?? '待配置岗位' }); setCreateNodeAt(null); setSelectedNodeId(nodeId); setInspectorOpen(true); persistAfterLocalChange(); }}>
-        <div className="flex items-start justify-between"><div><h3 className="text-sm font-bold text-slate-900">创建流程节点</h3><p className="mt-1 text-[11px] text-slate-400">节点将放置在刚才双击的位置</p></div><button type="button" aria-label="取消创建节点" onClick={() => setCreateNodeAt(null)} className="grid h-7 w-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100"><X className="h-4 w-4" /></button></div>
-        <label className="mt-5 block text-[11px] font-semibold text-slate-600">节点名称<input autoFocus value={newNodeLabel} onChange={(event) => setNewNodeLabel(event.target.value)} className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-xs outline-none focus:border-sky-400" /></label>
-        <fieldset className="mt-4"><legend className="text-[11px] font-semibold text-slate-600">选择负责角色</legend><div className="mt-2 grid grid-cols-2 gap-2">{employees.map((employee) => <button key={employee.id} type="button" onClick={() => setNewNodeEmployeeId(employee.id)} className={`flex items-center gap-2 rounded-xl border p-2.5 text-left transition-colors ${newNodeEmployeeId === employee.id ? 'border-sky-400 bg-sky-50' : 'border-slate-200 hover:bg-slate-50'}`}><EmployeeBotAvatar size={32} bodyColor={employee.color} status={employee.status} showBadge={false} /><span className="min-w-0"><strong className="block truncate text-[10px] text-slate-700">{employee.displayName}</strong><small className="block truncate text-[9px] text-slate-400">{employee.roleName}</small></span></button>)}</div></fieldset>
-        <button type="submit" className="mt-5 h-10 w-full rounded-lg bg-slate-900 text-xs font-semibold text-white hover:bg-slate-800">创建节点</button>
+        <div className="flex items-start justify-between"><div><h3 className="text-sm font-bold text-slate-900">创建流程节点</h3><p className="mt-1 text-[11px] text-slate-400">节点将放置在刚才双击的位置</p></div><Button variant="ghost" type="button" aria-label="取消创建节点" onClick={() => setCreateNodeAt(null)} className="grid h-7 w-7 place-items-center"><X className="h-4 w-4" /></Button></div>
+        <label className="mt-5 block text-[11px] font-semibold text-slate-600">节点名称<Input autoFocus value={newNodeLabel} onChange={(event) => setNewNodeLabel(event.target.value)} className="mt-1.5 w-full px-3 py-2.5 outline-none" /></label>
+        <fieldset className="mt-4"><legend className="text-[11px] font-semibold text-slate-600">选择负责角色</legend><div className="mt-2 grid grid-cols-2 gap-2">{employees.map((employee) => <Button key={employee.id} type="button" onClick={() => setNewNodeEmployeeId(employee.id)} className={`flex items-center gap-2 rounded-xl border p-2.5 text-left transition-colors ${newNodeEmployeeId === employee.id ? 'border-sky-400 bg-sky-50' : 'border-slate-200 hover:bg-slate-50'}`}><EmployeeBotAvatar size={32} bodyColor={employee.color} status={employee.status} showBadge={false} /><span className="min-w-0"><strong className="block truncate text-[10px] text-slate-700">{employee.displayName}</strong><small className="block truncate text-[9px] text-slate-400">{employee.roleName}</small></span></Button>)}</div></fieldset>
+        <Button variant="primary" type="submit" className="mt-5 h-10 w-full text-xs">创建节点</Button>
       </form></div>}
     </div>
 
     </div>
 
-    {(pendingPanelVisible || nodePanelVisible) && <><div role="separator" aria-label="调整 DAG 与待办宽度" aria-orientation="vertical" onPointerDown={(event) => { event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); setSideResize({ startX: event.clientX, startWidth: pendingPanelWidth }); }} className="group absolute bottom-4 top-4 z-50 w-2 cursor-col-resize" style={{ right: pendingPanelWidth + 12 }}><span className="absolute bottom-1/2 left-1/2 h-12 w-1 -translate-x-1/2 translate-y-1/2 rounded-full bg-slate-300 transition-colors group-hover:bg-sky-400" /></div><aside className="dag-side-workspace pointer-events-none absolute bottom-4 right-4 top-4 z-40 flex flex-col" style={{ width: pendingPanelWidth }} aria-label="DAG 右侧工作区">
-    {pendingPanelVisible && !nodePanelVisible && <div className="dag-floating-panel pointer-events-auto min-h-0 flex-1" aria-label="待办任务区域">
-      <PendingWorkBar embedded onEmbeddedClose={() => setPendingPanelVisible(false)} />
-    </div>}
-    {nodePanelVisible && <div className="pointer-events-auto flex min-h-0 flex-1 flex-col gap-2">
-    {pendingPanelVisible && <button type="button" onClick={() => { setNodePanelVisible(false); setInspectorOpen(false); }} className="flex h-11 shrink-0 items-center justify-between rounded-xl border border-slate-200 bg-white px-4 text-[11px] font-semibold text-slate-700 shadow-[0_6px_18px_rgba(15,23,42,0.08)] hover:bg-slate-50"><span>待办公文与任务</span><span className="text-slate-400">展开抽屉</span></button>}
-    {!pendingPanelVisible && <button type="button" onClick={() => setPendingPanelVisible(true)} className="flex h-11 shrink-0 items-center justify-between rounded-xl border border-slate-200 bg-white px-4 text-[11px] font-semibold text-slate-700 shadow-[0_6px_18px_rgba(15,23,42,0.08)] hover:bg-slate-50"><span>待办公文与任务</span><span className="text-slate-400">恢复抽屉</span></button>}
-    <section className="dag-floating-panel flex min-h-0 flex-1 flex-col overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-[0_8px_24px_rgba(15,23,42,0.12)]" aria-label="DAG 流程编辑器">
-      {!inspectorOpen ? <div key="empty" className="dag-panel-content flex h-full flex-col">
-        <div className="flex items-start justify-between border-b border-slate-100 px-5 py-4"><div><h3 className="text-sm font-bold text-slate-900">节点配置</h3><p className="mt-1 text-[11px] text-slate-400">选择画布节点后在此编辑</p></div><button type="button" aria-label="关闭节点配置" onClick={() => setNodePanelVisible(false)} className="grid h-7 w-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100"><X className="h-3.5 w-3.5" /></button></div>
-        <div className="grid flex-1 place-items-center px-8 text-center"><div><MousePointer2 className="mx-auto h-7 w-7 text-slate-300" /><p className="mt-3 text-xs font-semibold text-slate-600">尚未选择节点</p><p className="mt-1.5 text-[11px] leading-5 text-slate-400">点击节点打开配置；拖动节点时不会触发编辑。</p><button type="button" onClick={() => { setSelectedNodeId(null); setInspectorOpen(true); }} className="mt-4 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] font-semibold text-slate-600 hover:bg-slate-50">编辑流程设置</button></div></div>
-      </div> : <div key={selectedNode?.id ?? 'workflow'} className="dag-panel-content">
-      <div className="sticky top-0 z-10 flex items-start justify-between border-b border-slate-100 bg-white px-4 py-4"><div><h3 className="text-xs font-bold text-slate-900">{selectedNode ? '节点配置' : '流程配置'}</h3><p className="mt-1 text-[10px] text-slate-400">修改会自动保存</p></div><button type="button" aria-label="关闭节点配置" onClick={() => { setInspectorOpen(false); setNodePanelVisible(false); }} className="grid h-7 w-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100"><X className="h-3.5 w-3.5" /></button></div>
+    <>{(pendingPanelVisible || nodePanelExpanded) && <div role="separator" aria-label="调整 DAG 与协作抽屉宽度" aria-orientation="vertical" onPointerDown={(event) => { event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); setSideResize({ startX: event.clientX, startWidth: pendingPanelWidth }); }} className="group absolute bottom-4 top-4 z-50 w-2 cursor-col-resize" style={{ right: pendingPanelWidth + 12 }}><span className="absolute bottom-1/2 left-1/2 h-12 w-1 -translate-x-1/2 translate-y-1/2 rounded-full bg-slate-300 transition-colors group-hover:bg-sky-400" /></div>}
+    <aside className="dag-side-workspace pointer-events-auto absolute bottom-4 right-4 top-4 z-40 transition-[width] duration-300 ease-out" style={{ width: pendingPanelVisible || nodePanelExpanded ? pendingPanelWidth : 52 }} aria-label="DAG 右侧工作区">
+      <PendingWorkBar embedded onExpandedChange={setPendingPanelVisible} onOpenTeamChat={onOpenTeamChat} auxiliaryDrawer={{
+        visible: nodePanelVisible,
+        expanded: nodePanelExpanded,
+        title: selectedNode ? '节点配置' : '流程配置',
+        subtitle: '修改会自动保存',
+        onOpen: () => { setNodePanelVisible(true); setInspectorOpen(true); setNodePanelExpanded(true); },
+        onClose: closeNodePanel,
+        onCollapsed: () => { setNodePanelVisible(false); setInspectorOpen(false); },
+        content: <div key={selectedNode?.id ?? 'workflow'} className="dag-panel-content">
       {selectedNode ? <div className="space-y-4 p-4">
-        <label className="block text-[10px] font-semibold text-slate-500">节点名称<input name={`node-label-${selectedNode.id}`} value={selectedNode.label} onChange={(event) => updateWorkflowNode(selectedTeamId, selectedNode.id, { label: event.target.value })} onBlur={persistCurrentWorkflow} className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-[11px] outline-none focus:border-sky-400" /></label>
-        <label className="block text-[10px] font-semibold text-slate-500">岗位 / 职责<input name={`node-role-${selectedNode.id}`} value={selectedNode.roleName} onChange={(event) => updateWorkflowNode(selectedTeamId, selectedNode.id, { roleName: event.target.value })} onBlur={persistCurrentWorkflow} className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-[11px] outline-none focus:border-sky-400" /></label>
-        <label className="block text-[10px] font-semibold text-slate-500">负责人<select name={`node-assignee-${selectedNode.id}`} value={selectedNode.assignedEmployeeId ?? ''} onChange={(event) => updateNodeAndSave(selectedNode.id, { assignedEmployeeId: event.target.value || undefined })} className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px]"><option value="">未指派</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.displayName}</option>)}</select></label>
-        <label className="block text-[10px] font-semibold text-slate-500">状态<select name={`node-status-${selectedNode.id}`} value={selectedNode.status} onChange={(event) => updateNodeAndSave(selectedNode.id, { status: event.target.value as RoleNode['status'] })} className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px]"><option value="waiting">等待上游</option><option value="ready">就绪</option><option value="running">执行中</option><option value="blocked">阻塞</option><option value="completed">已完成</option></select></label>
+        <label className="block text-[10px] font-semibold text-slate-500">节点名称<Input name={`node-label-${selectedNode.id}`} value={selectedNode.label} onChange={(event) => updateWorkflowNode(selectedTeamId, selectedNode.id, { label: event.target.value })} onBlur={persistCurrentWorkflow} className="mt-1.5 w-full px-3 py-2 text-[11px] outline-none" /></label>
+        <label className="block text-[10px] font-semibold text-slate-500">岗位 / 职责<Input name={`node-role-${selectedNode.id}`} value={selectedNode.roleName} onChange={(event) => updateWorkflowNode(selectedTeamId, selectedNode.id, { roleName: event.target.value })} onBlur={persistCurrentWorkflow} className="mt-1.5 w-full px-3 py-2 text-[11px] outline-none" /></label>
+        <label className="block text-[10px] font-semibold text-slate-500">负责人<NativeSelect name={`node-assignee-${selectedNode.id}`} value={selectedNode.assignedEmployeeId ?? ''} onChange={(event) => updateNodeAndSave(selectedNode.id, { assignedEmployeeId: event.target.value || undefined })} className="mt-1.5 w-full px-3 py-2 text-[11px]"><option value="">未指派</option>{employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.displayName}</option>)}</NativeSelect></label>
+        <label className="block text-[10px] font-semibold text-slate-500">状态<NativeSelect name={`node-status-${selectedNode.id}`} value={selectedNode.status} onChange={(event) => updateNodeAndSave(selectedNode.id, { status: event.target.value as RoleNode['status'] })} className="mt-1.5 w-full px-3 py-2 text-[11px]"><option value="waiting">等待上游</option><option value="ready">就绪</option><option value="running">执行中</option><option value="blocked">阻塞</option><option value="completed">已完成</option></NativeSelect></label>
         <fieldset><legend className="text-[10px] font-semibold text-slate-500">上游依赖</legend><div className="mt-2 space-y-1.5">{nodes.filter((candidate) => candidate.id !== selectedNode.id).map((candidate) => { const active = selectedNode.requires?.includes(candidate.id) ?? false; return <label key={candidate.id} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-2 text-[10px] ${active ? 'border-sky-200 bg-sky-50 text-sky-700' : 'border-slate-200 text-slate-500'}`}><input name={`node-dependency-${selectedNode.id}`} type="checkbox" checked={active} onChange={() => updateNodeAndSave(selectedNode.id, { requires: active ? (selectedNode.requires ?? []).filter((id) => id !== candidate.id) : [...(selectedNode.requires ?? []), candidate.id] })} />{candidate.label}</label>; })}</div></fieldset>
-        <button type="button" onClick={() => { removeWorkflowNode(selectedTeamId, selectedNode.id); persistAfterLocalChange(); setSelectedNodeId(null); setInspectorOpen(false); }} className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-rose-200 text-[11px] font-semibold text-rose-600 hover:bg-rose-50"><Trash2 className="h-3.5 w-3.5" />删除节点</button>
+        <Button type="button" onClick={() => { removeWorkflowNode(selectedTeamId, selectedNode.id); persistAfterLocalChange(); setSelectedNodeId(null); closeNodePanel(); }} className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-rose-200 text-[11px] font-semibold text-rose-600 hover:bg-rose-50"><Trash2 className="h-3.5 w-3.5" />删除节点</Button>
       </div> : <div className="space-y-4 p-4">
-        <label className="block text-[10px] font-semibold text-slate-500">流程名称<input name="workflow-name" value={workflowNameDraft} onChange={(event) => setWorkflowNameDraft(event.target.value)} onBlur={() => void saveWorkflow(selectedTeamId, { ...workflow, name: workflowNameDraft })} className="mt-1.5 w-full rounded-lg border border-slate-200 px-3 py-2 text-[11px] outline-none focus:border-sky-400" /></label>
-        <label className="block text-[10px] font-semibold text-slate-500">流程说明<textarea name="workflow-description" value={workflowDescriptionDraft} onChange={(event) => setWorkflowDescriptionDraft(event.target.value)} onBlur={() => void saveWorkflow(selectedTeamId, { ...workflow, description: workflowDescriptionDraft })} className="mt-1.5 min-h-24 w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-[11px] outline-none focus:border-sky-400" /></label>
-        <button type="button" onClick={applyAutoLayout} className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"><Focus className="h-3.5 w-3.5" />重新整理节点</button>
+        <label className="block text-[10px] font-semibold text-slate-500">流程名称<Input name="workflow-name" value={workflowNameDraft} onChange={(event) => setWorkflowNameDraft(event.target.value)} onBlur={() => void saveWorkflow(selectedTeamId, { ...workflow, name: workflowNameDraft })} className="mt-1.5 w-full px-3 py-2 text-[11px] outline-none" /></label>
+        <label className="block text-[10px] font-semibold text-slate-500">流程说明<Textarea name="workflow-description" value={workflowDescriptionDraft} onChange={(event) => setWorkflowDescriptionDraft(event.target.value)} onBlur={() => void saveWorkflow(selectedTeamId, { ...workflow, description: workflowDescriptionDraft })} className="mt-1.5 min-h-24 w-full resize-none px-3 py-2 text-[11px] outline-none" /></label>
+        <Button type="button" onClick={applyAutoLayout} className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"><Focus className="h-3.5 w-3.5" />重新整理节点</Button>
       </div>}
-      </div>}
-    </section></div>}
-    </aside></>}
+      </div>,
+      }} />
+    </aside></>
     </div>
   </div>;
 };
