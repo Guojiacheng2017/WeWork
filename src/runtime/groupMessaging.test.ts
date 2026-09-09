@@ -17,8 +17,13 @@ it('browser-only messages persist publicly without creating deferred execution',
   expect(team.collaborationDeliveries??[]).toHaveLength(0);
 });
 
-it('desktop messages create durable delivery instead of only a public note',async()=>{
+it('desktop explicitly addressed messages create a durable delivery',async()=>{
   const {api,team}=await createTeam();
-  await publishGroupMessage(api,true,team.id,'reply please');
+  await publishGroupMessage(api,true,team.id,'reply please',team.employees[0].id);
   expect((await api.snapshot()).teams[0].collaborationDeliveries).toHaveLength(1);
+});
+
+it('desktop broadcast messages are public without waking the team leader',async()=>{
+ const {api,team}=await createTeam();await publishGroupMessage(api,true,team.id,'大家好 #进度');
+ const saved=(await api.snapshot()).teams[0];expect(saved.collaborationDeliveries??[]).toHaveLength(0);expect(saved.teamMessages?.at(-1)?.broadcast).toBe(true);
 });

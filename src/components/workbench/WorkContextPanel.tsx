@@ -1,3 +1,4 @@
+import { Input, NativeSelect, Textarea } from '../ui';
 import { useState } from 'react';
 import type { WorkItem } from '../../domain/wework';
 import { localWeWorkApi } from '../../api/weworkApi';
@@ -40,11 +41,11 @@ export function WorkContextPanel({ work }: { work: WorkItem }) {
     <details>
       <summary className="cursor-pointer">添加输入、决策或输出文档</summary>
       <form className="space-y-2 mt-2" onSubmit={(event) => { event.preventDefault(); void action(async () => { await localWeWorkApi.saveWorkDocument(work.id, { title, content, kind }); setTitle(''); setContent(''); }); }}>
-        <select aria-label="文档类型" className="border rounded p-1 w-full" value={kind} onChange={(event) => setKind(event.target.value as WorkDocument['kind'])}>
+        <NativeSelect aria-label="文档类型" className="rounded p-1 w-full" value={kind} onChange={(event) => setKind(event.target.value as WorkDocument['kind'])}>
           <option value="input">输入资料</option><option value="decision">已确认决策</option><option value="output">输出产物</option>
-        </select>
-        <input aria-label="文档标题" placeholder="文档标题" required maxLength={300} className="border rounded p-2 w-full" value={title} onChange={(event) => setTitle(event.target.value)} />
-        <textarea aria-label="文档正文" placeholder="正文或带版本的产物引用" required maxLength={100000} className="border rounded p-2 w-full" rows={4} value={content} onChange={(event) => setContent(event.target.value)} />
+        </NativeSelect>
+        <Input aria-label="文档标题" placeholder="文档标题" required maxLength={300} className="rounded p-2 w-full" value={title} onChange={(event) => setTitle(event.target.value)} />
+        <Textarea aria-label="文档正文" placeholder="正文或带版本的产物引用" required maxLength={100000} className="rounded p-2 w-full" rows={4} value={content} onChange={(event) => setContent(event.target.value)} />
         <button disabled={busy} className="border rounded px-3 py-1 disabled:opacity-50">保存文档</button>
       </form>
     </details>
@@ -64,8 +65,8 @@ export function WorkContextPanel({ work }: { work: WorkItem }) {
         {records?.documents.filter((d) => d.kind === 'output').map((document) => <label key={document.id} className="flex gap-2 items-center">
           <input type="checkbox" checked={selectedOutputs.includes(document.id)} onChange={(event) => setSelectedOutputs((ids) => event.target.checked ? [...ids, document.id] : ids.filter((id) => id !== document.id))} />{document.title} · v{document.revision}
         </label>)}
-        <input aria-label="交付说明" placeholder="交付说明" required maxLength={4000} className="border rounded p-2 w-full" value={summary} onChange={(event) => setSummary(event.target.value)} />
-        <textarea aria-label="验证证据" placeholder="验证证据或检查结果" required maxLength={4000} className="border rounded p-2 w-full" value={evidence} onChange={(event) => setEvidence(event.target.value)} />
+        <Input aria-label="交付说明" placeholder="交付说明" required maxLength={4000} className="rounded p-2 w-full" value={summary} onChange={(event) => setSummary(event.target.value)} />
+        <Textarea aria-label="验证证据" placeholder="验证证据或检查结果" required maxLength={4000} className="rounded p-2 w-full" value={evidence} onChange={(event) => setEvidence(event.target.value)} />
         <button disabled={busy || !selectedOutputs.length} className="border rounded px-3 py-1 disabled:opacity-50">提交待验收</button>
       </form>
     </details>
@@ -75,7 +76,7 @@ export function WorkContextPanel({ work }: { work: WorkItem }) {
       {delivery.knownIssues && <p>已知问题：{delivery.knownIssues}</p>}
       <p>产物：{delivery.documentIds.map((id) => records?.documents.find((d) => d.id === id)?.title ?? id).join('、')}</p>
       {!reviewed && <>
-        <textarea aria-label="验收意见" placeholder="填写验收或修改意见" className="border rounded p-2 w-full" maxLength={4000} value={feedback} onChange={(event) => setFeedback(event.target.value)} />
+        <Textarea aria-label="验收意见" placeholder="填写验收或修改意见" className="rounded p-2 w-full" maxLength={4000} value={feedback} onChange={(event) => setFeedback(event.target.value)} />
         <div className="flex gap-2">
           <button disabled={busy || !feedback.trim()} className="border rounded px-3 py-1 disabled:opacity-50" onClick={() => void action(() => localWeWorkApi.reviewDeliverable(work.id, { deliverableId: delivery.id, decision: 'accepted', feedback }))}>验收通过</button>
           <button disabled={busy || !feedback.trim()} className="border rounded px-3 py-1 disabled:opacity-50" onClick={() => void action(() => localWeWorkApi.reviewDeliverable(work.id, { deliverableId: delivery.id, decision: 'changes_requested', feedback }))}>要求修改</button>

@@ -4,7 +4,7 @@ type GroupApi = {
 };
 
 export async function publishGroupMessage(api:GroupApi,managedHost:boolean,teamId:string,text:string,recipientId?:string,contextTagIds?:string[]) {
-  if(managedHost) {
+  if(managedHost && recipientId) {
     if(!api.postGroupMessage)throw new Error('WeWork Host does not support group dispatch');
     return api.postGroupMessage(teamId,{text,recipientId,requestId:crypto.randomUUID(),contextTagIds});
   }

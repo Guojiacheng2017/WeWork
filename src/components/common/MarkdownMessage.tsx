@@ -1,3 +1,4 @@
+import { Input } from '../ui';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -18,7 +19,7 @@ export function MarkdownMessage({ children, inverted = false }: { children: stri
       th: ({ children }) => <th className="border border-slate-300 bg-slate-100 px-2 py-1 font-semibold text-slate-700">{children}</th>,
       td: ({ children }) => <td className="border border-slate-200 px-2 py-1 align-top">{children}</td>,
       hr: () => <hr className={`my-3 ${inverted ? 'border-slate-700' : 'border-slate-200'}`} />,
-      input: (props) => <input {...props} disabled className="mr-1 align-middle accent-sky-600" />,
+      input: (props) => <Input {...props} disabled className="mr-1 align-middle accent-sky-600" />,
     }}>{children}</ReactMarkdown>
   </div>;
 }
