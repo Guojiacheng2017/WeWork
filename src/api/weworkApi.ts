@@ -1,5 +1,5 @@
 import { createHostWeWorkApi } from './hostWeWorkApi';
-import type { WeWorkEmployee, WeWorkTeam, RuntimeProfile, SessionExecution, SkillRef, WorkItem, WorkflowTemplate, WorkspaceAssignment } from '../domain/wework';
+import type { AgentPermissionMode, WeWorkEmployee, WeWorkTeam, RuntimeProfile, SessionExecution, SkillRef, WorkItem, WorkflowTemplate, WorkspaceAssignment } from '../domain/wework';
 import { createLocalWeWorkApi } from '../local/localWeWorkApi';
 import type { CollaborationWorkItem, TeamModuleRegistry } from '../domain/collaboration';
 
@@ -32,11 +32,12 @@ const remoteWeWorkApi = {
   configureTeamModules: (teamId: string, body: TeamModuleRegistry) => request<WeWorkTeam>(`/v1/teams/${teamId}/modules`, { method: 'PUT', body: JSON.stringify(body) }),
   createCollaborationWorkItem: (teamId: string, body: object) => request<CollaborationWorkItem>(`/v1/teams/${teamId}/collaboration/work-items`, { method: 'POST', body: JSON.stringify(body) }),
   updateCollaborationWorkItem: (teamId: string, workItemId: string, body: object) => request<CollaborationWorkItem>(`/v1/teams/${teamId}/collaboration/work-items/${workItemId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteCollaborationWorkItem: (teamId: string, workItemId: string) => request(`/v1/teams/${teamId}/collaboration/work-items/${workItemId}`, { method: 'DELETE' }),
   deleteCollaborationDatabase: (teamId: string, body: { confirm: boolean }) => request<{ deleted: true }>(`/v1/teams/${teamId}/collaboration`, { method: 'DELETE', body: JSON.stringify(body) }),
   addEmployee: (teamId: string, body: object) => request<WeWorkEmployee>(`/v1/teams/${teamId}/employees`, { method: 'POST', body: JSON.stringify(body) }),
   removeEmployee: (teamId: string, employeeId: string) => request(`/v1/teams/${teamId}/employees/${employeeId}`, { method: 'DELETE' }),
-  updateEmployee: (employeeId: string, body: { displayName: string; roleName: string; runtime: WeWorkEmployee['runtime']; skills: SkillRef[]; defaultRuntimeProfileId?: string; workspaceAssignment?: WorkspaceAssignment; sessionExecution?: SessionExecution; sessionContextTagIds?: string[]; startNewSession?: boolean }) => {
-    const { sessionExecution: _localExecution, sessionContextTagIds: _localTags, startNewSession: _localSessionReset, ...collaborationFields } = body;
+  updateEmployee: (employeeId: string, body: { displayName: string; roleName: string; runtime: WeWorkEmployee['runtime']; skills: SkillRef[]; defaultRuntimeProfileId?: string; workspaceAssignment?: WorkspaceAssignment; sessionExecution?: SessionExecution; sessionContextTagIds?: string[]; sessionPermissionMode?: AgentPermissionMode; color?: string; startNewSession?: boolean }) => {
+    const { sessionExecution: _localExecution, sessionContextTagIds: _localTags, sessionPermissionMode: _localPermissionMode, startNewSession: _localSessionReset, ...collaborationFields } = body;
     return request<WeWorkEmployee>(`/v1/employees/${employeeId}`, { method: 'PATCH', body: JSON.stringify({ ...collaborationFields, workspaceAssignment: body.workspaceAssignment ?? null }) });
   },
   resetEmployeeContext: (employeeId: string) => request<WeWorkEmployee>(`/v1/employees/${employeeId}/reset-context`, { method: 'POST' }),

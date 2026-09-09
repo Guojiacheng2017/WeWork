@@ -30,7 +30,7 @@ export type AvailableSkill = { id: string; name: string; description: string; so
 export type DiagnosticEntry = { id: number; time: string; level: 'info' | 'error'; source: string; message: string; details?: Record<string, unknown> };
 export type DiagnosticSnapshot = { status: { host: 'ready' | 'unavailable'; pid: number | null }; entries: DiagnosticEntry[] };
 export type SkillCatalogResult = { skills: AvailableSkill[]; reason?: string };
-export type PluginManifest = { name: string; version: string; description: string; mcpServers?: string | Record<string, unknown>; interface?: { displayName?: string; shortDescription?: string; capabilities?: string[] } };
+export type PluginManifest = { name: string; version: string; description: string; enabled: boolean; source: 'bundled' | 'installed'; mcpServers?: string | Record<string, unknown>; interface?: { displayName?: string; shortDescription?: string; capabilities?: string[] } };
 export type PluginInvocation = { teamId: string; pluginName: string; tool: string; input?: Record<string, unknown> };
 export type SkillDiscoveryRequest = WorkspaceAssignment | {
   teamId?: string; employeeId?: string;
@@ -99,6 +99,8 @@ export class WeWorkHost {
   setDefaultHarnessModel(_harness: HarnessId, _modelId: string): Promise<HarnessModelCatalogResult> { return Promise.reject(new WeWorkHostError('HOST_UNAVAILABLE','模型目录需要 Desktop Host')); }
   createCredential(input: { label: string; kind: CredentialKind; secret: string }) { return this.ports.vault.create(input); }
   plugins(): Promise<PluginManifest[]> { return Promise.resolve([]); }
+  setPluginEnabled(_name: string, _enabled: boolean): Promise<PluginManifest[]> { return Promise.reject(new WeWorkHostError('HOST_UNAVAILABLE','Plugin 管理需要 Desktop Host')); }
+  installPlugin(): Promise<PluginManifest[] | null> { return Promise.reject(new WeWorkHostError('HOST_UNAVAILABLE','Plugin 安装需要 Desktop Host')); }
   invokePlugin(_input: PluginInvocation): Promise<Record<string, unknown>> { return Promise.reject(new WeWorkHostError('HOST_UNAVAILABLE','Plugin 需要 Desktop Host')); }
   async currentWorkspace(): Promise<ResolvedWorkspace> {
     return { kind: 'local', rootPath: await this.ports.directories.current() };
@@ -200,9 +202,12 @@ export class LoopbackWeWorkHost {
   credentials() { return this.request<{ credentials: CredentialMetadata[] }>('/v1/credentials').then((value) => value.credentials); }
   createCredential(input: { label: string; kind: CredentialKind; secret: string }) { return this.request<{ ref: string }>('/v1/credentials', { method: 'POST', body: JSON.stringify(input) }).then((value) => value.ref); }
   plugins() { return this.request<{plugins:PluginManifest[]}>('/v1/plugins').then(value=>value.plugins); }
+  setPluginEnabled(name: string, enabled: boolean) { return this.request<{plugins:PluginManifest[]}>('/v1/plugins/policy', { method:'POST', body:JSON.stringify({name,enabled}) }).then(value=>value.plugins); }
+  installPlugin(): Promise<PluginManifest[] | null> { return Promise.reject(new WeWorkHostError('HOST_UNAVAILABLE','请在桌面版中选择并安装 Plugin')); }
   invokePlugin(input: PluginInvocation) { return this.request<Record<string,unknown>>('/v1/plugins/invoke', { method: 'POST', body: JSON.stringify(input) }); }
   testSshWorkspace(assignment: Extract<WorkspaceAssignment, { kind: 'ssh' }>) { return this.request<WorkspaceProbe>('/v1/workspaces/ssh/probe', { method: 'POST', body: JSON.stringify(assignment) }); }
   startRun(spec: object) { return this.request<{ id: string; status: string }>('/v1/runs', { method: 'POST', body: JSON.stringify(spec) }); }
+  steerEmployee(employeeId: string, message: string) { return this.request<{accepted: boolean; runId?: string}>(`/v1/employees/${encodeURIComponent(employeeId)}/steer`, {method:'POST', body:JSON.stringify({message})}); }
   cancelRun(runId: string) { return this.request<{ accepted: boolean }>(`/v1/runs/${encodeURIComponent(runId)}/cancel`, { method: 'POST' }); }
   run(runId: string) { return this.request<{ id: string; status: string; finalText?: string; error?: string }>(`/v1/runs/${encodeURIComponent(runId)}`); }
   events(after = 0) { return this.request<{ events: Array<RuntimeEvent & { id: number }>; cursor: number }>('/v1/events', { headers: { 'last-event-id': String(after) } }); }
@@ -211,21 +216,27 @@ export class LoopbackWeWorkHost {
 }
 
 export class LoopbackRuntimeEvents {
+  private polling = false;
   private cursor = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private listeners = new Set<(event: RuntimeEvent) => void>();
   constructor(private host: LoopbackWeWorkHost, private intervalMs = 500) {}
   subscribe(listener: (event: RuntimeEvent) => void) {
     this.listeners.add(listener);
-    if (!this.timer) void this.poll();
+    if (!this.timer && !this.polling) void this.poll();
     return () => { this.listeners.delete(listener); if (!this.listeners.size && this.timer) { clearTimeout(this.timer); this.timer = null; } };
   }
   private async poll() {
+    if (this.polling) return;
+    this.polling = true;
     try {
       const result = await this.host.events(this.cursor);
       for (const event of result.events) this.listeners.forEach((listener) => listener(event));
       this.cursor = result.cursor;
+    } catch {
+      // Keep the cursor and retry after transient Host restarts/disconnections.
     } finally {
+      this.polling = false;
       if (this.listeners.size) this.timer = setTimeout(() => void this.poll(), this.intervalMs);
       else this.timer = null;
     }

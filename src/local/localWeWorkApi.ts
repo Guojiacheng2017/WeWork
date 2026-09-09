@@ -1,3 +1,5 @@
+import { employeeErrorKey } from '../domain/employeeWorkStatus.ts';
+import { randomEmployeeColor, validateEmployeeColor } from '../domain/employeeColor.ts';
 import { createCollaborationApi } from './collaborationState.ts';
 import { acceptedDeliverable, createWorkContextApi } from './workContext.ts';
 import type {
@@ -99,6 +101,8 @@ export function createLocalWeWorkApi(
   };
   const findWork = (state: LocalState, workId: string) => {
     for (const team of state.teams) {
+      const completed = team.completedWorks?.find(work => work.id === workId);
+      if (completed) return { team, work: completed, location: 'completed' as const };
       const cancelled = team.cancelledWorks?.find((work) => work.id === workId);
       if (cancelled) return { team, work: cancelled, location: 'cancelled' as const };
       const pending = team.pendingWorks.find((work) => work.id === workId);
@@ -118,6 +122,7 @@ export function createLocalWeWorkApi(
     employee.currentWorkItem = next ? { ...next, status: 'running' } : undefined;
     employee.queuedWorkItems = remaining;
     employee.status = next ? 'working' : 'idle';
+    employee.executionActivity = { state: next ? 'waiting' : 'idle', detail: next ? '等待执行下一项工作' : '当前没有执行中的任务', updatedAt: now() };
   };
   const findTeam = (state: LocalState, teamId: string) => {
     const team = state.teams.find((candidate) => candidate.id === teamId);
@@ -178,7 +183,7 @@ export function createLocalWeWorkApi(
     createTeam: async (input: { name: string; description?: string; leadName?: string; leadRole?: string; runtime?: WeWorkEmployee['runtime']; sessionExecution?: SessionExecution; workspaceAssignment?: WorkspaceAssignment; initializeLead?: boolean }) => mutate((state) => {
       const lead: WeWorkEmployee = {
         id: identifier('employee'), displayName: input.leadName || 'Employee-01', roleName: input.leadRole || '团队负责人',
-        color: '#C8102E', status: 'idle', runtime: input.runtime || 'Pi', isLead: true, builtInSkills: [],
+        color: randomEmployeeColor(), status: 'idle', runtime: input.runtime || 'Pi', isLead: true, builtInSkills: [],
         activeSession: { id: identifier('session'), contextRatio: 0, updatedAt: now(), messages: [], metrics: [] },
         artifacts: [], queuedWorkItems: [], completedWorkItems: [],
       };
@@ -192,7 +197,6 @@ export function createLocalWeWorkApi(
       const team = findTeam(state, teamId);
       team.modules = normalizeTeamModules(input);
       if (team.modules!.projectManagement.installed && !team.collaborationDatabase) team.collaborationDatabase = createCollaborationDatabase(now());
-      if (!team.modules!.projectManagement.capabilities.includes('dag') && team.topology === 'workflowDag') team.topology = 'roundTable';
       return team;
     }),
     replaceCollaborationDatabase: async (teamId: string, input: unknown) => mutate((state) => {
@@ -208,12 +212,34 @@ export function createLocalWeWorkApi(
       database.workItems.push(item); database.activities.push({ id: identifier('activity'), workItemId: item.id, action: 'work_item.created', createdAt: timestamp });
       return item;
     }),
+    updateAssignedWorkItemStatus: async (teamId: string, workItemId: string, statusId: string, actor: { employeeId: string; runId: string }) => mutate((state) => {
+      const team = findTeam(state, teamId);
+      const database = requireCapability(team, ['board']);
+      const item = database.workItems.find(candidate => candidate.id === workItemId);
+      if (!item) throw new Error('work item not found');
+      const assigned = database.assignees.some(assignee => assignee.employeeId === actor.employeeId && item.assigneeIds.includes(assignee.id));
+      if (!team.employees.some(employee => employee.id === actor.employeeId) || !assigned) throw new Error('Only the assigned employee may update task status');
+      if (!database.statuses.some(status => status.id === statusId)) throw new Error('invalid work item status');
+      item.statusId = statusId;
+      item.updatedAt = now();
+      database.activities.push({ id: identifier('activity'), workItemId, actorId: actor.employeeId, action: 'work_item.status_updated', createdAt: item.updatedAt, details: { statusId, runId: actor.runId } });
+      return item;
+    }),
     updateCollaborationWorkItem: async (teamId: string, workItemId: string, patch: Partial<Pick<CollaborationWorkItem, 'title' | 'description' | 'statusId' | 'priorityId' | 'cycleId' | 'milestoneId' | 'labelIds' | 'assigneeIds' | 'startDate' | 'dueDate'>>) => mutate((state) => {
       const team = findTeam(state, teamId); const database = requireCapability(team, ['issues', 'board', 'gantt', 'timeline', 'calendar', 'database']);
       const item = database.workItems.find((candidate) => candidate.id === workItemId); if (!item) throw new Error('work item not found');
       Object.assign(item, clone(patch), { updatedAt: now() });
       database.activities.push({ id: identifier('activity'), workItemId: item.id, action: 'work_item.updated', createdAt: item.updatedAt, details: clone(patch) });
       return item;
+    }),
+    deleteCollaborationWorkItem: async (teamId: string, workItemId: string) => mutate((state) => {
+      const team = findTeam(state, teamId); const database = requireCapability(team, ['issues', 'board', 'gantt', 'timeline', 'calendar', 'database']);
+      if (!database.workItems.some(item => item.id === workItemId)) throw new Error('work item not found');
+      database.workItems = database.workItems.filter(item => item.id !== workItemId);
+      database.relations = database.relations.filter(relation => relation.sourceWorkItemId !== workItemId && relation.targetWorkItemId !== workItemId);
+      database.comments = database.comments.filter(comment => comment.workItemId !== workItemId);
+      database.activities = database.activities.filter(activity => activity.workItemId !== workItemId);
+      return { deleted: workItemId };
     }),
     deleteCollaborationDatabase: async (teamId: string, input: { confirm: boolean }) => mutate((state) => {
       if (!input?.confirm) throw Object.assign(new Error('explicit confirmation is required'), { code: 'CONFIRMATION_REQUIRED' });
@@ -250,7 +276,7 @@ export function createLocalWeWorkApi(
       const team = state.teams.find((candidate) => candidate.id === teamId);
       if (!team) throw new Error('team not found');
       const employee: WeWorkEmployee = {
-        id: identifier('employee'), displayName: input.displayName, roleName: input.roleName, color: '#0BA5EC', status: 'idle',
+        id: identifier('employee'), displayName: input.displayName, roleName: input.roleName, color: randomEmployeeColor(team.employees.map(employee => employee.color)), status: 'idle',
         runtime: input.runtime, defaultRuntimeProfileId: input.defaultRuntimeProfileId, builtInSkills: [],
         activeSession: { id: identifier('session'), contextRatio: 0, updatedAt: now(), messages: [], metrics: [] },
         artifacts: [], queuedWorkItems: [], completedWorkItems: [],
@@ -268,14 +294,31 @@ export function createLocalWeWorkApi(
       if (employee.isLead) throw new Error('transfer team lead before removal');
       team.pendingWorks.push(...[employee.currentWorkItem, ...(employee.queuedWorkItems ?? [])]
         .filter((work): work is WorkItem => Boolean(work)).map((work) => ({ ...work, status: 'pending' as const, assignedEmployeeId: undefined })));
-      if (employee.completedWorkItems?.length) throw new Error('employee has completed work history; retain this member');
+      team.completedWorks = [...(team.completedWorks ?? []), ...(employee.completedWorkItems ?? [])];
+      for (const delivery of team.collaborationDeliveries ?? []) {
+        if (delivery.employeeId === employeeId && delivery.status === 'queued') {
+          delivery.status = 'cancelled'; delivery.error = '助手已移出团队'; delivery.updatedAt = now();
+        }
+      }
+      const database = team.collaborationDatabase;
+      if (database) {
+        const removedIds = new Set([employeeId, ...database.assignees.filter(item => item.employeeId === employeeId).map(item => item.id)]);
+        database.assignees = database.assignees.filter(item => item.employeeId !== employeeId);
+        database.workItems.forEach(item => { item.assigneeIds = item.assigneeIds.filter(id => !removedIds.has(id)); });
+      }
+      team.workflow?.nodes.forEach(node => { if (node.assignedEmployeeId === employeeId) node.assignedEmployeeId = undefined; });
       team.employees = team.employees.filter((candidate) => candidate.id !== employeeId);
       return { deleted: employeeId };
     }),
-    updateEmployee: async (employeeId: string, input: { displayName: string; roleName: string; runtime: WeWorkEmployee['runtime']; skills: SkillRef[]; defaultRuntimeProfileId?: string; workspaceAssignment?: WorkspaceAssignment; sessionExecution?: SessionExecution; sessionContextTagIds?: string[]; startNewSession?: boolean }) => mutate((state) => {
+    updateEmployee: async (employeeId: string, input: { displayName: string; roleName: string; runtime: WeWorkEmployee['runtime']; skills: SkillRef[]; defaultRuntimeProfileId?: string; workspaceAssignment?: WorkspaceAssignment; sessionExecution?: SessionExecution; sessionContextTagIds?: string[]; sessionPermissionMode?: 'ask' | 'auto' | 'full'; color?: string; startNewSession?: boolean }) => mutate((state) => {
       const { employee } = findEmployee(state, employeeId);
+      if (input.color !== undefined) employee.color = validateEmployeeColor(input.color);
       Object.assign(employee, { displayName: input.displayName, roleName: input.roleName, runtime: input.runtime, builtInSkills: clone(input.skills), defaultRuntimeProfileId: input.defaultRuntimeProfileId, workspaceAssignment: normalizeWorkspaceAssignment(input.workspaceAssignment) });
       if (input.sessionContextTagIds) employee.activeSession.contextTagIds = [...new Set(input.sessionContextTagIds.map((tag) => tag.trim()).filter(Boolean))].slice(0, 20);
+      if (input.sessionPermissionMode !== undefined) {
+        if (!['ask', 'auto', 'full'].includes(input.sessionPermissionMode)) throw new Error('invalid Session permission mode');
+        employee.activeSession.permissionMode = input.sessionPermissionMode;
+      }
       if (input.sessionExecution) {
         const sessionExecution = normalizeSessionExecution(input.sessionExecution);
         const current = employee.activeSession.execution;
@@ -286,7 +329,7 @@ export function createLocalWeWorkApi(
         }
         if (current && sessionExecution.profileRevision < current.profileRevision) throw Object.assign(new Error('session execution revision cannot decrease'), { code: 'SESSION_EXECUTION_STALE', currentRevision: current.profileRevision });
         if (current && sessionExecution.profileRevision === current.profileRevision && JSON.stringify(sessionExecution) !== JSON.stringify(current)) throw Object.assign(new Error('session execution revision conflict'), { code: 'SESSION_EXECUTION_CONFLICT', currentRevision: current.profileRevision });
-        if (changesHarness && hasContext && input.startNewSession) employee.activeSession = { id: identifier('session'), contextRatio: 0, updatedAt: now(), messages: [], metrics: [], contextTagIds: employee.activeSession.contextTagIds, execution: sessionExecution };
+        if (changesHarness && hasContext && input.startNewSession) { (employee.sessionHistory ??= []).unshift(clone(employee.activeSession)); employee.activeSession = { id: identifier('session'), contextRatio: 0, updatedAt: now(), messages: [], metrics: [], contextTagIds: employee.activeSession.contextTagIds, permissionMode: input.sessionPermissionMode ?? employee.activeSession.permissionMode, execution: sessionExecution }; }
         else employee.activeSession.execution = sessionExecution;
       } else {
         const profile = state.runtimeProfiles.find((candidate) => candidate.id === input.defaultRuntimeProfileId);
@@ -296,7 +339,8 @@ export function createLocalWeWorkApi(
     }),
     resetEmployeeContext: async (employeeId: string) => mutate((state) => {
       const { employee } = findEmployee(state, employeeId);
-      employee.activeSession = { id: identifier('session'), contextRatio: 0, updatedAt: now(), messages: [], metrics: [], execution: employee.activeSession.execution, contextTagIds: employee.activeSession.contextTagIds };
+      if (employee.activeSession.messages.length) (employee.sessionHistory ??= []).unshift(clone(employee.activeSession));
+      employee.activeSession = { id: identifier('session'), contextRatio: 0, updatedAt: now(), messages: [], metrics: [], execution: employee.activeSession.execution, contextTagIds: employee.activeSession.contextTagIds, permissionMode: employee.activeSession.permissionMode };
       return employee;
     }),
     setLead: async (teamId: string, employeeId: string) => mutate((state) => {
@@ -316,7 +360,7 @@ export function createLocalWeWorkApi(
       const located = findWork(state, workId);
       const { team: employeeTeam, employee } = findEmployee(state, employeeId);
       if (located.team.id !== employeeTeam.id || located.location !== 'pending') throw new Error('work cannot be assigned');
-      if (employee.runtime === 'Pi' && !employee.defaultRuntimeProfileId && !located.work.runtimeProfileId && !employeeTeam.defaultRuntimeProfileId) {
+      if (employee.runtime === 'Pi' && !(employee.activeSession.execution?.adapter === 'pi' && employee.activeSession.execution.enabled) && !employee.defaultRuntimeProfileId && !located.work.runtimeProfileId && !employeeTeam.defaultRuntimeProfileId) {
         throw new Error('Pi employee requires an enabled Pi runtime profile');
       }
       located.team.pendingWorks = located.team.pendingWorks.filter((work) => work.id !== workId);
@@ -390,13 +434,43 @@ export function createLocalWeWorkApi(
       employee.activeSession.updatedAt = now();
       return message;
     }),
+    acknowledgeEmployeeError: async (employeeId: string, observedKey: string) => mutate(snapshot => {
+      const { employee, team } = findEmployee(snapshot, employeeId);
+      if (employeeErrorKey(employee, team.collaborationDeliveries) === observedKey) employee.acknowledgedErrorKey = observedKey;
+      return { acknowledged: employee.acknowledgedErrorKey === observedKey };
+    }),
+    setEmployeeActivity: async (employeeId: string, state: 'idle'|'working'|'waiting'|'error', detail: string, runId?: string) => mutate(snapshot => {
+      const {employee} = findEmployee(snapshot, employeeId);
+      employee.executionActivity = {state,detail,runId,updatedAt:now()};
+    }),
+    clearSessionContextMeasurement: async (employeeId: string) => mutate(state => {
+      const {employee} = findEmployee(state, employeeId);
+      employee.activeSession.contextMeasuredAt = undefined;
+      employee.activeSession.contextRatio = 0;
+      employee.activeSession.metrics = [];
+    }),
+    updateSessionContextUsage: async (employeeId: string, usage: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; context: { tokens: number; effectiveLimit: number; percent: number } }) => mutate((state) => {
+      const { employee } = findEmployee(state, employeeId);
+      const context = usage?.context;
+      if (!context || !Number.isFinite(context.tokens) || context.tokens < 0 || !Number.isFinite(context.effectiveLimit) || context.effectiveLimit <= 0 || !Number.isFinite(context.percent)) throw new Error('invalid Session Context usage');
+      const maximum = context.effectiveLimit;
+      const metric = (label: string, value: unknown) => Number.isFinite(value) && Number(value) >= 0 ? { label, value: Number(value), maximum, unit: 'tokens' } : undefined;
+      employee.activeSession.contextRatio = Math.max(0, Math.min(100, context.percent));
+      employee.activeSession.contextMeasuredAt = now();
+      employee.activeSession.metrics = [
+        metric('Context tokens', context.tokens), metric('Input tokens', usage.input), metric('Output tokens', usage.output),
+        metric('Cache read', usage.cacheRead), metric('Cache write', usage.cacheWrite),
+      ].filter((item): item is NonNullable<typeof item> => Boolean(item));
+      employee.activeSession.updatedAt = now();
+      return clone(employee.activeSession);
+    }),
     sendTeamMessage: async (teamId: string, text: string, actor?: { employeeId: string; runId: string }, contextTagIds?: string[]) => mutate((state) => {
       const team = state.teams.find((candidate) => candidate.id === teamId);
       if (!team) throw new Error('team not found');
       if (typeof text !== 'string' || !text.trim() || text.length > 10000) throw new Error('invalid team message');
       const author = actor ? team.employees.find((employee) => employee.id === actor.employeeId) : undefined;
       if (actor && !author) throw new Error('team message actor is not a member');
-      const message: MessageItem = { id: identifier('team-message'), sender: author ? 'employee' : 'user', senderName: author?.displayName ?? '你', text, time: now(), sourceRunId: actor?.runId, contextTagIds: [...new Set((contextTagIds ?? []).map((tag) => tag.trim()).filter(Boolean))].slice(0, 20) };
+      const message: MessageItem = { id: identifier('team-message'), broadcast: true, sender: author ? 'employee' : 'user', senderName: author?.displayName ?? '你', text, time: now(), sourceRunId: actor?.runId, contextTagIds: [...new Set((contextTagIds ?? []).map((tag) => tag.trim()).filter(Boolean))].slice(0, 20) };
       team.teamMessages = [...(team.teamMessages ?? []), message];
       return message;
     }),

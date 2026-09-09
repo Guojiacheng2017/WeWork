@@ -7,12 +7,21 @@ const parse = (text, fallback) => text ? JSON.parse(text) : structuredClone(fall
 
 export const safeTeamDirectory = (teamId) => `team-${createHash('sha256').update(String(teamId)).digest('hex')}`;
 
+export function durableSync(fd, options = {}) {
+  const platform = options.platform ?? process.platform;
+  const sync = options.sync ?? fsyncSync;
+  try { sync(fd); }
+  catch (error) {
+    if (platform !== 'win32' || error?.code !== 'EPERM') throw error;
+  }
+}
+
 function atomicWrite(path, value, hooks = {}) {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const temporary = `${path}.${randomUUID()}.tmp`;
   writeFileSync(temporary, value, { mode: 0o600 });
   const fd = openSync(temporary, 'r');
-  try { fsyncSync(fd); } finally { closeSync(fd); }
+  try { durableSync(fd); } finally { closeSync(fd); }
   hooks.beforeRename?.(path, temporary);
   renameSync(temporary, path);
 }

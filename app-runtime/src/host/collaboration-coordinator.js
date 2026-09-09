@@ -25,6 +25,12 @@ export class CollaborationCoordinator {
         let run;
         try { run = await this.runtime.get(delivery.runId); }
         catch (error) { if (!['RUN_NOT_FOUND', 'ENOENT'].includes(error.code)) throw error; }
+        // Completion may publish a terminal checkpoint and leave active while
+        // the first read is in flight. Recheck before declaring interruption.
+        if ((!run || !terminal.has(run.status)) && !this.runtime.active?.has(delivery.runId)) {
+          try { run = await this.runtime.get(delivery.runId); }
+          catch (error) { if (!['RUN_NOT_FOUND', 'ENOENT'].includes(error.code)) throw error; }
+        }
         if (run && terminal.has(run.status)) {
           await this.wework.api.finishGroupDelivery(team.id, delivery.id, delivery.runId, { status: run.status, finalText: run.finalText, error: run.error });
           this.runtime.journal?.publish({ type: 'wework.updated', runId: delivery.runId });

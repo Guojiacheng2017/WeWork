@@ -1,0 +1,40 @@
+import { expect, test } from 'vitest';
+import { createLocalWeWorkApi, MemoryWeWorkStorage } from './localWeWorkApi';
+test('employee keeps one context across reload and restarting retains read-only history', async () => {
+  const storage = new MemoryWeWorkStorage(); const api = createLocalWeWorkApi(storage);
+  const team = await api.createTeam({name:'Employee lifecycle'});
+  const employee = await api.addEmployee(team.id, {displayName:'Worker',roleName:'QA',runtime:'Pi'});
+  const id = employee.id, original = employee.activeSession.id;
+  await api.sendMessage(id, 'remember this'); await api.sendAssistantMessage(id, 'remembered');
+  let current = (await createLocalWeWorkApi(storage).snapshot()).teams[0].employees.find(e => e.id === id)!;
+  expect(current.activeSession.id).toBe(original); expect(current.activeSession.messages).toHaveLength(2);
+  await api.resetEmployeeContext(id);
+  current = (await api.snapshot()).teams[0].employees.find(e => e.id === id)!;
+  expect(current.activeSession.id).not.toBe(original); expect(current.activeSession.messages).toEqual([]);
+  expect(current.sessionHistory![0].messages).toHaveLength(2);
+  await api.resetEmployeeContext(id);
+  expect((await api.snapshot()).teams[0].employees.find(e => e.id === id)!.sessionHistory).toHaveLength(1);
+  await api.removeEmployee(team.id, id);
+  expect((await createLocalWeWorkApi(storage).snapshot()).teams[0].employees.some(e => e.id === id)).toBe(false);
+});
+
+test('removing an employee returns pending work and retains completed deliverables', async () => {
+  const api = createLocalWeWorkApi(new MemoryWeWorkStorage());
+  const team = await api.createTeam({name:'Departure'});
+  const worker = await api.addEmployee(team.id, {displayName:'Worker',roleName:'QA',runtime:'Pi', sessionExecution:{id:'qa-execution',name:'Pi QA',adapter:'pi',model:{provider:'deepseek',modelId:'deepseek-v4-flash'},enabled:true,profileRevision:1,systemPrompt:'',thinkingLevel:'off'}});
+  const create = (title: string) => api.createWork(team.id, {title,goal:title,priority:'medium',category:'Digital'});
+  const completed = await create('Completed'); await api.assignWork(completed.id, worker.id);
+  const doc = await api.saveWorkDocument(completed.id, {title:'Result',content:'Verified',kind:'output'});
+  const result = await api.submitDeliverable(completed.id, {summary:'done',documentIds:[doc.id],evidence:'verified'});
+  await api.reviewDeliverable(completed.id, {deliverableId:result.id,decision:'accepted',feedback:'reviewed'});
+  await api.completeCurrent(worker.id);
+  const running = await create('Running'), queued = await create('Queued');
+  await api.assignWork(running.id,worker.id); await api.assignWork(queued.id,worker.id);
+  await api.removeEmployee(team.id, worker.id);
+  const saved = (await api.snapshot()).teams[0];
+  expect(saved.pendingWorks.map(work=>work.id)).toEqual([running.id,queued.id]);
+  expect(saved.pendingWorks.every(work=>work.status==='pending'&&!work.assignedEmployeeId)).toBe(true);
+  expect(saved.completedWorks?.[0].id).toBe(completed.id);
+  expect((await api.getWorkContext(completed.id)).latestDeliverable?.id).toBe(result.id);
+  expect((await api.readWorkDocument(completed.id, doc.id)).content).toBe('Verified');
+});

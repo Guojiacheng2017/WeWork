@@ -1,3 +1,4 @@
+from secrets import choice
 import re
 from typing import Annotated, Literal
 
@@ -108,7 +109,7 @@ class EmployeeCreate(BaseModel):
     displayName: str = Field(default="新助手", min_length=1, max_length=200)
     roleName: str = "专职算法工程师"
     runtime: Runtime = "Workspace"
-    color: str = "#0BA5EC"
+    color: str = Field(default_factory=lambda: choice(["#0BA5EC", "#8B5CF6", "#10B981", "#F59E0B", "#EC4899", "#6366F1", "#14B8A6", "#F97316"]), pattern=r"^#[0-9a-fA-F]{6}$")
     defaultRuntimeProfileId: str | None = None
 
 
@@ -118,6 +119,7 @@ class SkillInput(BaseModel):
 
 
 class EmployeeUpdate(BaseModel):
+    color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
     displayName: str | None = Field(default=None, min_length=1, max_length=200)
     roleName: str | None = Field(default=None, min_length=1, max_length=200)
     runtime: Runtime | None = None

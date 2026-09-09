@@ -155,3 +155,65 @@ test('capability registry controls Agent project tool exposure', async (t) => {
   const disabled = await wework.prepare({ id: 'capability-3', employeeId, workId: work.id });
   assert.equal(createWeWorkTools(wework, disabled).some((tool) => tool.name.startsWith('wework_project_')), false);
 });
+
+test('Session permission mode scopes injected tools and rejects mid-run changes', async (t) => {
+  const { wework, employeeId, work } = await setup(t);
+  const employee = (await wework.api.snapshot()).teams[0].employees[0];
+  const updateMode = (sessionPermissionMode) => wework.api.updateEmployee(employeeId, { displayName: employee.displayName, roleName: employee.roleName, runtime: employee.runtime, skills: [], sessionPermissionMode });
+
+  await updateMode('ask');
+  const supervisedSpec = await wework.prepare({ id: 'permission-ask', employeeId, workId: work.id });
+  const supervised = createWeWorkTools(wework, supervisedSpec);
+  assert.equal(supervised.some((tool) => tool.name === 'wework_get_task_context'), true);
+  assert.equal(supervised.some((tool) => tool.name === 'wework_save_output'), false);
+
+  await updateMode('auto');
+  const automaticSpec = await wework.prepare({ id: 'permission-auto', employeeId, workId: work.id });
+  const automatic = createWeWorkTools(wework, automaticSpec);
+  assert.equal(automatic.some((tool) => tool.name === 'wework_save_output'), true);
+  assert.equal(automatic.some((tool) => tool.name === 'wework_request_handoff'), false);
+
+  await updateMode('full');
+  const unrestrictedSpec = await wework.prepare({ id: 'permission-full', employeeId, workId: work.id });
+  assert.equal(createWeWorkTools(wework, unrestrictedSpec).some((tool) => tool.name === 'wework_request_handoff'), true);
+  await updateMode('ask');
+  await assert.rejects(createWeWorkTools(wework, unrestrictedSpec).find((tool) => tool.name === 'wework_request_handoff').execute('stale-permission', { targetEmployeeId: employeeId, note: 'test' }), /permissions changed/);
+});
+
+test('lead edits DAG; members can change status but cannot edit DAG or Gantt even with full access', async t => {
+  const { wework, team, employeeId, work } = await setup(t);
+  await wework.api.configureTeamModules(team.id, { projectManagement: { installed: true, enabled: true, capabilities: ['issues', 'board', 'gantt'] } });
+  const spec = await wework.prepare({ id: 'dag-lead', employeeId, workId: work.id });
+  const tools = createWeWorkTools(wework, spec);
+  const save = tools.find(t => t.name === 'wework_save_dag');
+  const current = (await tools.find(t => t.name === 'wework_get_dag').execute('read', {})).details;
+  const input = { expectedVersion: current.version ?? 0, name: 'Delivery', nodes: [{ id: 'a', label: 'Draft', roleName: 'Writer', assignedEmployeeId: employeeId }, { id: 'b', label: 'Review', roleName: 'Reviewer', requires: ['a'] }] };
+  const saved = (await save.execute('save', input)).details;
+  assert.equal(saved.nodes[1].requires[0], 'a');
+  await assert.rejects(save.execute('stale', input), /version conflict/);
+  await assert.rejects(save.execute('cycle', { ...input, expectedVersion: saved.version, nodes: [{ id: 'a', label: 'A', roleName: 'Role', requires: ['a'] }] }), /cycle/);
+  const member = await wework.api.addEmployee(team.id, { displayName: 'Member', roleName: 'Writer', runtime: 'Workspace', skills: [] });
+  await wework.api.setLead(team.id, member.id);
+  await assert.rejects(save.execute('demoted', { ...input, expectedVersion: saved.version }), /team lead/);
+  const demoted = await wework.prepare({ id: 'dag-member', employeeId, workId: work.id });
+  const names = createWeWorkTools(wework, { ...demoted, wework: { ...demoted.wework, permissionMode: 'full' } }).map(t => t.name);
+  assert.ok(names.includes('wework_get_dag'));
+  assert.ok(names.includes('wework_project_list_issues'));
+  assert.ok(names.includes('wework_project_move_board_item'));
+  for (const name of ['wework_save_dag', 'wework_project_create_issue', 'wework_project_schedule_gantt_item']) assert.equal(names.includes(name), false, name);
+  const item = await wework.api.createCollaborationWorkItem(team.id, { projectId: 'project-main', title: 'Member status update' });
+  const state = (await wework.api.snapshot()).teams[0];
+  state.collaborationDatabase.assignees.push({ id: 'assignee-worker', employeeId, displayName: 'Worker' });
+  await wework.api.replaceCollaborationDatabase(team.id, state.collaborationDatabase);
+  await wework.api.updateCollaborationWorkItem(team.id, item.id, { assigneeIds: ['assignee-worker'] });
+  const statusId = state.collaborationDatabase.statuses[1].id;
+  const move = createWeWorkTools(wework, demoted).find(t => t.name === 'wework_project_move_board_item');
+  const moved = await move.execute('member-status', { workItemId: item.id, statusId });
+  assert.equal(moved.details.statusId, statusId);
+  await assert.rejects(move.execute('invalid-status', { workItemId: item.id, statusId: 'missing' }), /invalid work item status/);
+  await wework.api.updateCollaborationWorkItem(team.id, item.id, { assigneeIds: [] });
+  await assert.rejects(move.execute('unassigned', { workItemId: item.id, statusId }), /assigned employee/);
+  await wework.api.setLead(team.id, employeeId);
+  await assert.rejects(move.execute('lead-not-owner', { workItemId: item.id, statusId }), /assigned employee/);
+  await assert.rejects(wework.call('updateAssignedWorkItemStatus', [team.id, item.id, statusId]), /unsupported/);
+});

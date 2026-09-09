@@ -7,7 +7,7 @@ export class EventJournal {
   after(cursor = 0) { return this.events.filter((event) => event.id > cursor); }
 }
 
-const json = (res, status, body) => { res.writeHead(status, { "content-type": "application/json", "access-control-allow-origin": "http://127.0.0.1:5173" }); res.end(JSON.stringify(body)); };
+const json = (res, status, body) => { res.writeHead(status, { "content-type": "application/json", "access-control-allow-origin": "http://127.0.0.1:5173" }); res.end(JSON.stringify(body ?? null)); };
 const body = async (req) => { const chunks = []; for await (const chunk of req) chunks.push(chunk); return chunks.length ? JSON.parse(Buffer.concat(chunks)) : {}; };
 
 export function createHostServer({ token, services, journal = new EventJournal() }) {
@@ -34,9 +34,13 @@ export function createHostServer({ token, services, journal = new EventJournal()
       if (req.url === "/v1/credentials" && req.method === "GET") return json(res, 200, { credentials: await services.listCredentials() });
       if (req.url === "/v1/credentials" && req.method === "POST") return json(res, 201, await services.createCredential(await body(req)));
       if (req.url === "/v1/plugins" && req.method === "GET") return json(res, 200, { plugins: await services.listPlugins() });
+      if (req.url === "/v1/plugins/policy" && req.method === "POST") return json(res, 200, { plugins: await services.setPluginEnabled(await body(req)) });
+      if (req.url === "/v1/plugins/install" && req.method === "POST") return json(res, 201, { plugins: await services.installPlugin(await body(req)) });
       if (req.url === "/v1/plugins/invoke" && req.method === "POST") return json(res, 200, await services.invokePlugin(await body(req)));
       if (req.url === "/v1/workspaces/ssh/probe" && req.method === "POST") return json(res, 200, await services.probeSshWorkspace(await body(req)));
       if (req.url === "/v1/runs" && req.method === "POST") return json(res, 202, await services.runtime.start(await body(req)));
+      const steerMatch = req.url?.match(/^\/v1\/employees\/([^/]+)\/steer$/);
+      if (steerMatch && req.method === 'POST') return json(res, 200, await services.runtime.steerEmployee(decodeURIComponent(steerMatch[1]), (await body(req)).message));
       const runMatch = req.url?.match(/^\/v1\/runs\/([^/]+)$/);
       const cancelMatch = req.url?.match(/^\/v1\/runs\/([^/]+)\/cancel$/);
       if (runMatch && req.method === "GET") { const run = await services.runtime.get(decodeURIComponent(runMatch[1])); if (!run) throw new HostError("RUN_NOT_FOUND", "run not found", 404); return json(res, 200, run); }

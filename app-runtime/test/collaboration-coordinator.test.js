@@ -152,3 +152,19 @@ test('cancel delivery preserves running state on timeout and only marks cancelle
   assert.equal((await runtime.get(specs[0].id)).status, 'cancelled');
   assert.equal((await wework.call('cancelGroupDelivery', [team.id, message.deliveryId])).status, 'cancelled');
 });
+
+test('completion during checkpoint read is not mistaken for an interrupted session', async (t) => {
+  const { wework, team, coordinator, runtime, specs } = await setup(t);
+  const message = await wework.api.postGroupMessage(team.id, {text:'Hello',requestId:'race'});
+  await coordinator.drain();
+  const id = specs[0].id;
+  let reads = 0;
+  runtime.get = async () => {
+    reads++;
+    runtime.active.delete(id);
+    return reads === 1 ? {id,status:'running'} : {id,status:'succeeded',finalText:'Completed'};
+  };
+  await coordinator.drain();
+  const delivery = (await wework.api.snapshot()).teams[0].collaborationDeliveries.find(item => item.id === message.deliveryId);
+  assert.equal(delivery.status, 'succeeded');
+});

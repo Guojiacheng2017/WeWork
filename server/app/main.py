@@ -343,6 +343,8 @@ def create_app(database_url: str | None = None, artifact_root: Path | None = Non
     def update_employee(employee_id: str, body: EmployeeUpdate, session: Session = Depends(db)):
         employee = get_employee(session, employee_id)
         updates = body.model_dump(exclude_unset=True)
+        if updates.get("color") is not None:
+            employee.color = updates["color"].upper()
         if "displayName" in updates:
             employee.display_name = updates["displayName"]
         if "roleName" in updates:

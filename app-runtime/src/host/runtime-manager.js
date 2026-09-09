@@ -9,7 +9,8 @@ export class RuntimeManager {
     if (this.active.has(spec.id) || [...this.active.values()].some((r) => r.employeeId === spec.employeeId)) throw new HostError('RUN_ALREADY_ACTIVE', 'employee already has an active run', 409);
     const controller = new AbortController();
     const completion = Promise.withResolvers();
-    this.active.set(spec.id, { controller, employeeId: spec.employeeId, done: completion.promise });
+    const controlsReady = Promise.withResolvers();
+    this.active.set(spec.id, { controller, employeeId: spec.employeeId, group: Boolean(spec.wework?.group), adapter: spec.runtimeProfile.adapter, controlsReady, done: completion.promise });
     try {
       if (await this.store.getRun(spec.id)) throw new HostError('RUN_ALREADY_ACTIVE', 'run id was already used', 409);
       const checkpointId = spec.session?.id ?? spec.employeeId;
@@ -38,7 +39,7 @@ export class RuntimeManager {
       run.status = 'running'; run.updatedAt = new Date().toISOString();
       await this.store.putRun(run); this.journal.publish({ type: 'run.started', runId: run.id });
       if (controller.signal.aborted) throw controller.signal.reason;
-      const result = await this.execute(spec, { signal: controller.signal, emit: (event) => this.journal.publish({ ...event, runId: run.id }) });
+      const result = await this.execute(spec, { signal: controller.signal, registerControls: (controls) => { const active = this.active.get(run.id); if(active) { active.controls = controls; if(controls) active.controlsReady.resolve(controls); } }, emit: (event) => this.journal.publish({ ...event, runId: run.id }) });
       if (controller.signal.aborted) throw controller.signal.reason;
       const maxMessages = spec.runtimeSettings?.context?.maxMessages;
       const messages = Array.isArray(result.messages) && Number.isSafeInteger(maxMessages) && maxMessages > 0 ? result.messages.slice(-maxMessages) : result.messages;
@@ -52,6 +53,19 @@ export class RuntimeManager {
       Object.assign(run, { status: cancelled ? 'cancelled' : 'failed', error: cancelled ? 'cancelled' : error?.message ?? String(error), updatedAt: new Date().toISOString() });
       await this.store.putRun(run); this.journal.publish({ type: `run.${run.status}`, runId: run.id, error: run.error });
     }
+  }
+  async steerEmployee(employeeId, message) {
+    if(typeof message !== 'string' || !message.trim() || message.length > 100000) throw new HostError('INVALID_MESSAGE', '补充消息不能为空或过长', 422);
+    const entry = [...this.active.entries()].find(([, active]) => active.employeeId === employeeId);
+    if(!entry) return { accepted: false };
+    const [runId, active] = entry;
+    if(active.group) throw new HostError('GROUP_RUN_ACTIVE', '助手正在回复群聊，请在群聊中 @ 该助手补充消息，或等待回复完成。', 409);
+    if(active.adapter !== 'pi') throw new HostError('STEERING_UNSUPPORTED', '当前执行器暂不支持执行中补充消息，请等待本次执行完成。', 409);
+    const controls = await Promise.race([active.controlsReady.promise, active.done.then(()=>null)]);
+    if(!controls || !active.controls) { await active.done; return { accepted: false }; }
+    try { await controls.steer(message.trim()); } catch(error) { if(error.code !== 'RUN_NOT_ACTIVE') throw error; await active.done; return { accepted: false }; }
+    this.journal.publish({type:'assistant.activity',runId,activity:'status',text:'补充消息已发送到当前执行'});
+    return { accepted: true, runId };
   }
   async cancel(id) { const active = this.active.get(id); if (!active) throw new HostError('RUN_NOT_ACTIVE', 'run is not active', 409); active.controller.abort(new Error('cancelled')); }
   async cancelAndWait(id, { timeoutMs = 15000 } = {}) {

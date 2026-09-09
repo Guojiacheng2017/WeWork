@@ -42,3 +42,13 @@ test("event journal replays events after a cursor", () => {
   journal.publish({ type: "run.succeeded", runId: "r1" });
   assert.deepEqual(journal.after(1).map((event) => event.id), [2, 3]);
 });
+
+test('void WeWork mutations still return valid JSON across the desktop bridge', async () => {
+  const host = createHostServer({token:'secret',services:{weworkCall:async()=>undefined}});
+  await host.listen(0);
+  try {
+    const response = await fetch(`${host.url}/v1/wework/call`, {method:'POST',headers:{authorization:'Bearer secret','content-type':'application/json'},body:JSON.stringify({method:'acknowledgeEmployeeError',args:[]})});
+    assert.equal(response.status,200);
+    assert.equal(await response.json(),null);
+  } finally {await host.close();}
+});

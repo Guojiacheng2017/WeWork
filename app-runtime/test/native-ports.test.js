@@ -44,9 +44,15 @@ test("keychain lists metadata but resolves secret internally", async () => {
   const values = new Map();
   const service = new MacKeychainVault({ exec: async (file, args, options) => {
     assert.equal(file, "security");
+    assert.ok(!args.join(' ').includes('PRIVATE'));
+    if (args[0] === "-i") {
+      const command = options.input.trim().split(' ');
+      const account = command[command.indexOf('-a') + 1];
+      values.set(account, Buffer.from(command[command.indexOf('-X') + 1], 'hex').toString('utf8'));
+      return { stdout: "" };
+    }
     const account = args[args.indexOf("-a") + 1];
-    if (args[0] === "add-generic-password") { values.set(account, options.input); return { stdout: "" }; }
-    return { stdout: values.get(account) };
+    return { stdout: values.get(account) + '\n' };
   } });
   const created = await service.createCredential({ label: "GPU", kind: "ssh-private-key", secret: "PRIVATE" });
   assert.deepEqual(await service.listCredentials(), [{ ref: created.ref, label: "GPU", kind: "ssh-private-key" }]);
@@ -126,4 +132,50 @@ test("ssh probe reports host-key and timeout failures without throwing", async (
     assert.equal(result.ok, false);
     assert.equal(result.error, message);
   }
+});
+
+test('keychain command input preserves multiline Unicode secrets without putting them in argv', async () => {
+  const secret = '  密钥\n"quoted"\\end\n';
+  let stored;
+  const vault = new MacKeychainVault({ exec: async (_file, args, options) => {
+    assert.ok(!args.join(' ').includes(secret));
+    if (args[0] === '-i') {
+      assert.equal(options.input.split('\n').length, 2);
+      stored = Buffer.from(options.input.trim().split(' ').at(-1), 'hex').toString('utf8');
+      return { stdout: '' };
+    }
+    return { stdout: stored + '\n' };
+  } });
+  const { ref } = await vault.createCredential({ label: 'Multiline', kind: 'ssh-private-key', secret });
+  assert.equal(await vault.resolveCredential(ref), secret);
+});
+
+test('keychain failed verification cleans up and never publishes credential metadata', async () => {
+  const calls = [];
+  const vault = new MacKeychainVault({ exec: async (_file, args) => { calls.push(args); return { stdout: '' }; } });
+  await assert.rejects(vault.createCredential({ label: 'Test', kind: 'model-api-key', secret: 'expected' }), { code: 'CREDENTIAL_STORE_FAILED' });
+  assert.deepEqual(await vault.listCredentials(), []);
+  assert.ok(calls.some(args => args[0] === 'delete-generic-password'));
+});
+
+test('keychain persists and restores chunked credentials across Vault instances', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'wework-vault-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const metadataPath = join(root, 'metadata.json');
+  const values = new Map();
+  const exec = async (_file, args, options) => {
+    if (args[0] === '-i') {
+      assert.ok(options.input.length < 1024);
+      const command = options.input.trim().split(' ');
+      values.set(command[command.indexOf('-a') + 1], Buffer.from(command.at(-1), 'hex').toString('utf8'));
+      return { stdout: '' };
+    }
+    return { stdout: values.get(args[args.indexOf('-a') + 1]) + '\n' };
+  };
+  const secret = '  中文\n' + 'x'.repeat(5000) + '\n ';
+  const first = new MacKeychainVault({ metadataPath, exec });
+  const { ref } = await first.createCredential({ label: 'Long', kind: 'ssh-private-key', secret });
+  const restarted = new MacKeychainVault({ metadataPath, exec });
+  assert.equal(await restarted.resolveCredential(ref), secret);
+  assert.deepEqual(await restarted.listCredentials(), [{ ref, label: 'Long', kind: 'ssh-private-key' }]);
+  assert.ok(values.size > 1);
 });

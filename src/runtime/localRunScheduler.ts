@@ -4,18 +4,24 @@ import type { ResolvedWorkspace } from '../domain/wework';
 type SchedulerPorts = {
   managedWeWork?: boolean;
   wework: { snapshot(): Promise<any>; listRuntimeProfiles(): Promise<{ profiles: any[] }> };
-  host: { currentWorkspace(): Promise<ResolvedWorkspace>; dataInfo?(): Promise<{ rootPath: string }>; startRun(spec: object): Promise<{ id: string; status: string }>; cancelRun?(runId: string): Promise<unknown>; run?(runId: string): Promise<{ status: string }> };
+  host: { currentWorkspace(): Promise<ResolvedWorkspace>; dataInfo?(): Promise<{ rootPath: string }>; startRun(spec: object): Promise<{ id: string; status: string }>; steerEmployee?(employeeId: string, message: string): Promise<{accepted:boolean;runId?:string}>; cancelRun?(runId: string): Promise<unknown>; run?(runId: string): Promise<{ status: string; finalText?: string }> };
   storage?: Pick<Storage, 'getItem' | 'setItem'>;
 };
 
 export class LocalRunScheduler {
   private activeByEmployee = new Map<string, string>();
+  private startingEmployees = new Set<string>();
   private promptRunIds = new Set<string>();
   private readonly storageKey = 'wework:active-runs';
   constructor(private ports: SchedulerPorts) {
-    try { this.activeByEmployee = new Map(JSON.parse(ports.storage?.getItem(this.storageKey) ?? '[]')); } catch { this.activeByEmployee = new Map(); }
+    try {
+      const saved = JSON.parse(ports.storage?.getItem(this.storageKey) ?? '[]');
+      this.activeByEmployee = new Map(Array.isArray(saved) ? saved : saved.active);
+      this.promptRunIds = new Set(Array.isArray(saved) ? [] : saved.prompts ?? []);
+    } catch { this.activeByEmployee = new Map(); }
+
   }
-  private persist() { this.ports.storage?.setItem(this.storageKey, JSON.stringify([...this.activeByEmployee])); }
+  private persist() { this.ports.storage?.setItem(this.storageKey, JSON.stringify({ active: [...this.activeByEmployee], prompts: [...this.promptRunIds] })); }
   private async resolveWorkspace(team: any, employee: any): Promise<ResolvedWorkspace> {
     const assignment = employee.workspaceAssignment ?? team.workspaceAssignment;
     if (!assignment || assignment.kind === 'local' && !assignment.rootPath) {
@@ -28,7 +34,15 @@ export class LocalRunScheduler {
     }
     return assignment;
   }
-  async startCurrentWork(employeeId: string, prompt?: string) {
+  private async withAdmission<T>(employeeId: string, operation: () => Promise<T>) {
+    if (this.startingEmployees.has(employeeId) || this.activeByEmployee.has(employeeId)) throw new WeWorkHostError('RUN_ALREADY_ACTIVE', 'employee already has an active run', 409);
+    this.startingEmployees.add(employeeId);
+    try { return await operation(); } finally { this.startingEmployees.delete(employeeId); }
+  }
+  startCurrentWork(employeeId: string, prompt?: string) {
+    return this.withAdmission(employeeId, () => this.startCurrentWorkUnlocked(employeeId, prompt));
+  }
+  private async startCurrentWorkUnlocked(employeeId: string, prompt?: string) {
     if (this.activeByEmployee.has(employeeId)) throw new WeWorkHostError('RUN_ALREADY_ACTIVE', 'employee already has an active run', 409);
     const [{ teams }, { profiles }] = await Promise.all([this.ports.wework.snapshot(), this.ports.wework.listRuntimeProfiles()]);
     const team = teams.find((candidate: any) => candidate.employees.some((employee: any) => employee.id === employeeId));
@@ -53,13 +67,26 @@ export class LocalRunScheduler {
     this.persist();
     return run;
   }
-  async startPrompt(employeeId: string, prompt: string) {
+  async sendPrompt(employeeId: string, prompt: string) {
+    if(this.ports.host.steerEmployee) {
+      const result = await this.ports.host.steerEmployee(employeeId, prompt);
+      if(result.accepted) return {steered:true};
+      // The Host is authoritative when a stale renderer still remembers an old run.
+      if(this.activeByEmployee.has(employeeId)) this.markTerminal(employeeId);
+    }
+    await this.startPrompt(employeeId,prompt);
+    return {steered:false};
+  }
+  startPrompt(employeeId: string, prompt: string) {
+    return this.withAdmission(employeeId, () => this.startPromptUnlocked(employeeId, prompt));
+  }
+  private async startPromptUnlocked(employeeId: string, prompt: string) {
     if (this.activeByEmployee.has(employeeId)) throw new WeWorkHostError('RUN_ALREADY_ACTIVE', 'employee already has an active run', 409);
     const [{ teams }, { profiles }] = await Promise.all([this.ports.wework.snapshot(), this.ports.wework.listRuntimeProfiles()]);
     const team = teams.find((candidate: any) => candidate.employees.some((employee: any) => employee.id === employeeId));
     const employee = team?.employees.find((employee: any) => employee.id === employeeId);
     if (!employee) throw new WeWorkHostError('HOST_INTERNAL', 'employee not found', 404);
-    if (this.ports.managedWeWork && employee.currentWorkItem) return this.startCurrentWork(employeeId, prompt);
+    if (this.ports.managedWeWork && employee.currentWorkItem) return this.startCurrentWorkUnlocked(employeeId, prompt);
     const sessionExecution = employee.activeSession.execution;
     const profileId = employee.defaultRuntimeProfileId ?? team.defaultRuntimeProfileId;
     const runtimeProfile = sessionExecution?.enabled !== false && sessionExecution ? sessionExecution : profiles.find((profile) => profile.id === profileId && profile.enabled);
@@ -91,9 +118,12 @@ export class LocalRunScheduler {
     const results = [];
     for (const [employeeId, runId] of [...this.activeByEmployee]) {
       try {
-        const run = await this.ports.host.run(runId); results.push({ employeeId, runId, status: run.status });
+        const run = await this.ports.host.run(runId); results.push({ employeeId, runId, status: run.status, ...(this.isPromptRun(runId) ? { promptRun: true, finalText: run.finalText } : {}) });
         if (['succeeded', 'failed', 'cancelled'].includes(run.status)) this.markTerminal(employeeId);
-      } catch { this.markTerminal(employeeId); }
+      } catch (error) {
+        // A temporary Host outage does not prove that execution has stopped.
+        if (['RUN_NOT_FOUND', 'ENOENT'].includes((error as { code?: string }).code ?? '')) this.markTerminal(employeeId);
+      }
     }
     return results;
   }

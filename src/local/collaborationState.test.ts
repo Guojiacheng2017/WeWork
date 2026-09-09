@@ -120,3 +120,36 @@ test('queued cancellation is durable, idempotent and cannot conceal running or u
   await api.reserveGroupDelivery(team.id, active.deliveryId!, 'active-run');
   await expect(api.cancelGroupDelivery(team.id, active.deliveryId!)).rejects.toThrow('Host stop');
 });
+
+test('an explicit group reply prevents a second automatic execution summary', async () => {
+  const {api,team}=await setup();
+  const trigger=await api.postGroupMessage(team.id,{text:'Reply once',requestId:'single-reply'});
+  await api.reserveGroupDelivery(team.id,trigger.deliveryId!,'reply-run');
+  await api.replyGroupMessage(team.id,{text:'Requested answer',requestId:'tool-reply'},{employeeId:team.employees[0].id,runId:'reply-run',deliveryId:trigger.deliveryId});
+  await api.finishGroupDelivery(team.id,trigger.deliveryId!,'reply-run',{status:'succeeded',finalText:'Reply sent: Requested answer'});
+  const saved=(await api.snapshot()).teams[0];
+  expect(saved.teamMessages!.filter(message=>message.sourceRunId==='reply-run').map(message=>message.text)).toEqual(['Requested answer']);
+  expect(saved.collaborationDeliveries![0].status).toBe('succeeded');
+});
+
+test('broadcasts enter each employee group context without private histories',async()=>{
+ const {api,team,target}=await setup();
+ const broadcast=await api.sendTeamMessage(team.id,'Shared announcement');
+ await api.sendMessage(target.id,'PRIVATE');
+ for(const employee of [team.employees[0],target]) {
+   const trigger=await api.postGroupMessage(team.id,{text:'Discuss',requestId:employee.id,recipientId:employee.id});
+   const context=await api.getGroupContext(team.id,trigger.deliveryId!);
+   expect(context.conversation.map(m=>m.id)).toContain(broadcast.id);
+   expect(JSON.stringify(context)).not.toContain('PRIVATE');
+   expect((await api.readGroupMessage(team.id,broadcast.id,0,trigger.deliveryId)).text).toBe('Shared announcement');
+ }
+});
+test('@all creates one shared message and one idempotent delivery per employee',async()=>{
+ const {api,team,target}=await setup();
+ const input={text:'@all reply',recipientId:'all',requestId:'all-request'};
+ const message=await api.postGroupMessage(team.id,input);await api.postGroupMessage(team.id,input);
+ const saved=(await api.snapshot()).teams[0];
+ expect(saved.teamMessages).toHaveLength(1);expect(message.broadcast).toBe(true);
+ expect(saved.collaborationDeliveries?.map(d=>d.employeeId)).toEqual([team.employees[0].id,target.id]);
+ expect(saved.collaborationDeliveries?.every(d=>d.messageId===message.id)).toBe(true);
+});

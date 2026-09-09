@@ -3,10 +3,22 @@ import test from 'node:test';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { TeamPartitionedWeWorkStorage, safeTeamDirectory } from '../src/host/team-partitioned-wework-storage.js';
+import { TeamPartitionedWeWorkStorage, durableSync, safeTeamDirectory } from '../src/host/team-partitioned-wework-storage.js';
 import { createLocalWeWorkApi } from '../../src/local/localWeWorkApi.ts';
 
 const state = (teams, cursor = 1) => JSON.stringify({ teams, runtimeProfiles: [], eventCursor: cursor });
+
+test('continues after Windows rejects fsync with EPERM', () => {
+  const error = Object.assign(new Error('operation not permitted, fsync'), { code: 'EPERM' });
+  assert.doesNotThrow(() => durableSync(7, { platform: 'win32', sync: () => { throw error; } }));
+});
+
+test('does not hide fsync failures outside the Windows EPERM case', () => {
+  for (const [platform, code] of [['linux', 'EPERM'], ['win32', 'EIO']]) {
+    const error = Object.assign(new Error(`${code}, fsync`), { code });
+    assert.throws(() => durableSync(7, { platform, sync: () => { throw error; } }), error);
+  }
+});
 
 test('migrates legacy state once and preserves an unchanged backup', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'wework-partition-')); t.after(() => rm(root, { recursive: true, force: true }));

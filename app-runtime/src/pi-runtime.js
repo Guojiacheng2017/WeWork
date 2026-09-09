@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
-import { access } from 'node:fs/promises';
+import { access, stat } from 'node:fs/promises';
 import { delimiter, isAbsolute, join } from 'node:path';
 import { HostError } from './host/errors.js';
 import { scrubHostChildEnvironment } from './host/process.js';
@@ -33,8 +33,30 @@ async function createToolBridge(tools, signal) {
 
 const spawnRpc = (file, args, options) => spawn(file, args, { ...options, shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
 
+function piUsage(stats = {}) {
+  const tokens = stats.tokens && typeof stats.tokens === 'object' ? { ...stats.tokens } : {};
+  const context = stats.contextUsage;
+  if (!context || !Number.isFinite(context.tokens)) return tokens;
+  const harnessContextWindow = Number(context.harnessContextWindow ?? context.contextWindow);
+  const modelContextWindow = Number(context.modelContextWindow ?? context.contextWindow);
+  if (!(harnessContextWindow > 0) || !(modelContextWindow > 0)) return tokens;
+  const effectiveLimit = Math.min(harnessContextWindow, Math.floor(modelContextWindow * 0.8));
+  if (!(effectiveLimit > 0)) return tokens;
+  return { ...tokens, context: {
+    tokens: context.tokens,
+    harnessContextWindow,
+    modelContextWindow,
+    effectiveLimit,
+    percent: Math.round(Math.min(100, context.tokens / effectiveLimit * 100) * 10) / 10,
+  } };
+}
+
 export async function executePiRun(spec, options = {}) {
   if (spec.workspace?.kind === 'ssh') throw new HostError('PI_WORKSPACE_UNSUPPORTED', 'Pi currently requires a local workspace', 409);
+  if (spec.workspace?.rootPath) {
+    try { if (!(await stat(spec.workspace.rootPath)).isDirectory()) throw new Error('not a directory'); }
+    catch { throw new HostError('PI_WORKSPACE_MISSING', `助手工作目录不存在或不可访问：${spec.workspace.rootPath}。请在助手设置中修正工作目录后重试。`, 409); }
+  }
   const executable = await resolveExecutable(options);
   if (!isAbsolute(options.extensionPath ?? '')) throw new HostError('PI_EXTENSION_MISSING', 'WeWork Pi extension path is unavailable', 500);
   const bridge = await createToolBridge(options.tools ?? [], options.signal);
@@ -51,7 +73,14 @@ export async function executePiRun(spec, options = {}) {
   let buffer = ''; let stderr = ''; let settled = false; let id = 0; const pending = new Map(); const completion = Promise.withResolvers();
   // Cancellation may close the child before prompt acknowledgement; attach eagerly.
   completion.promise.catch(() => {});
-  const send = (type, fields = {}) => new Promise((resolve, reject) => { const requestId = `wework-${++id}`; pending.set(requestId, { resolve, reject }); child.stdin.write(`${JSON.stringify({ id: requestId, type, ...fields })}\n`); });
+  let processFailure;
+  const fail = (error) => {
+    processFailure = error;
+    for (const request of pending.values()) request.reject(error);
+    pending.clear();
+    completion.reject(error);
+  };
+  const send = (type, fields = {}) => new Promise((resolve, reject) => { if (processFailure) return reject(processFailure); const requestId = `wework-${++id}`; pending.set(requestId, { resolve, reject }); child.stdin.write(`${JSON.stringify({ id: requestId, type, ...fields })}\n`); });
   const handle = (event) => {
     if (event.type === 'response' && pending.has(event.id)) { const request = pending.get(event.id); pending.delete(event.id); event.success ? request.resolve(event.data) : request.reject(new Error(event.error ?? `Pi RPC ${event.command} failed`)); return; }
     if (event.type === 'message_update' && event.assistantMessageEvent?.type === 'text_delta') options.emit?.({ type: 'assistant.delta', text: event.assistantMessageEvent.delta });
@@ -61,17 +90,20 @@ export async function executePiRun(spec, options = {}) {
     if (event.type === 'tool_execution_end' && String(event.toolName ?? '').startsWith('wework_')) options.emit?.({ type: 'wework.updated' });
     if (event.type === 'agent_settled' && !settled) { settled = true; completion.resolve(); }
   };
-  child.stdout.on('data', (chunk) => { buffer += chunk.toString(); for (;;) { const newline = buffer.indexOf('\n'); if (newline < 0) break; const line = buffer.slice(0, newline).replace(/\r$/, ''); buffer = buffer.slice(newline + 1); if (line) try { handle(JSON.parse(line)); } catch (error) { completion.reject(new Error(`Invalid Pi RPC output: ${error.message}`)); } } });
-  child.stderr.on('data', (chunk) => { stderr = `${stderr}${chunk}`.slice(-16000); }); child.once('error', completion.reject); child.once('close', (code) => { if (!settled) completion.reject(new Error(stderr.trim() || `Pi exited before settling (${code})`)); });
+  child.stdout.on('data', (chunk) => { buffer += chunk.toString(); for (;;) { const newline = buffer.indexOf('\n'); if (newline < 0) break; const line = buffer.slice(0, newline).replace(/\r$/, ''); buffer = buffer.slice(newline + 1); if (line) try { handle(JSON.parse(line)); } catch (error) { fail(new Error(`Invalid Pi RPC output: ${error.message}`)); } } });
+  child.stderr.on('data', (chunk) => { stderr = `${stderr}${chunk}`.slice(-16000); }); child.stdin.on('error', fail); child.once('error', fail); child.once('close', (code) => { if (!settled || pending.size) fail(new Error(stderr.trim() || `Pi 进程已退出（${code}），本次消息未完成，请重试。`)); });
   const abort = () => { if (child.exitCode === null) { child.stdin.write(`${JSON.stringify({ type: 'abort' })}\n`); setTimeout(() => { if (child.exitCode === null) child.kill('SIGTERM'); }, 2000).unref(); } };
   options.signal?.addEventListener('abort', abort, { once: true });
   try {
     if (options.signal?.aborted) throw options.signal.reason;
-    await send('prompt', { message: buildWorkPrompt(spec) }); await completion.promise;
+    await send('prompt', { message: buildWorkPrompt(spec) });
+    options.registerControls?.({ steer: async (message) => { if(settled) throw new HostError('RUN_NOT_ACTIVE', '本次执行已结束，请重新发送。', 409); await send('steer', { message }); } });
+    await completion.promise;
     const text = await send('get_last_assistant_text') ?? {}; const transcript = await send('get_messages') ?? {}; const stats = await send('get_session_stats') ?? {};
     child.stdin.end(); await new Promise((resolve) => child.exitCode !== null ? resolve() : child.once('close', resolve));
-    return { nativeSessionId, messages: transcript.messages ?? [], finalText: text.text ?? '', usage: stats.tokens ?? {} };
+    return { nativeSessionId, messages: transcript.messages ?? [], finalText: text.text ?? '', usage: piUsage(stats) };
   } finally {
+    options.registerControls?.(null);
     options.signal?.removeEventListener('abort', abort); for (const request of pending.values()) request.reject(new Error('Pi RPC closed')); pending.clear();
     if (child.exitCode === null && !child.killed) child.kill('SIGTERM'); await bridge.close();
   }

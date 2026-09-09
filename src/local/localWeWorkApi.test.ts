@@ -1,3 +1,4 @@
+import { employeeErrorKey, employeeRingState } from '../domain/employeeWorkStatus';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createLocalWeWorkApi, MemoryWeWorkStorage } from './localWeWorkApi';
 import type { WeWorkTeam, RuntimeProfile } from '../domain/wework';
@@ -301,4 +302,25 @@ describe('local WeWork service', () => {
     const restarted = createLocalWeWorkApi(storage);
     expect((await restarted.snapshot()).teams[0].teamMessages?.map((message) => message.text)).toEqual(['persistent team update']);
   });
+});
+
+it('persists exactly the observed error acknowledgement without hiding a newer failure', async () => {
+ const storage = new MemoryWeWorkStorage(); const api = createLocalWeWorkApi(storage); await api.bootstrap(seed);
+ await api.setEmployeeActivity('employee-1','error','first');
+ const old = (await api.snapshot()).teams[0].employees[0]; const key = employeeErrorKey(old)!;
+ await api.acknowledgeEmployeeError(old.id,key);
+ expect(employeeRingState((await createLocalWeWorkApi(storage).snapshot()).teams[0].employees[0])).toBe('idle');
+ await api.setEmployeeActivity(old.id,'error','second'); await api.acknowledgeEmployeeError(old.id,key);
+ expect(employeeRingState((await api.snapshot()).teams[0].employees[0])).toBe('error');
+});
+
+it('returning the last task clears stale waiting activity', async () => {
+ const storage = new MemoryWeWorkStorage(); const api = createLocalWeWorkApi(storage);
+ const teams = structuredClone(seed);
+ teams[0].employees[0].currentWorkItem = {id:'work-state',title:'Review',goal:'',priority:'medium',category:'Digital',status:'running',createdAt:'now'} as NonNullable<typeof teams[0]['employees'][0]['currentWorkItem']>;
+ teams[0].employees[0].executionActivity = {state:'waiting',detail:'等待交付审核',updatedAt:'now'};
+ await api.bootstrap(teams); await api.returnCurrent('employee-1');
+ const team = (await api.snapshot()).teams[0];
+ expect(employeeRingState(team.employees[0])).toBe('idle');
+ expect(team.pendingWorks.map(work=>work.id)).toContain('work-state');
 });

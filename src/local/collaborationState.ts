@@ -50,21 +50,23 @@ function post(team: WeWorkTeam, input: GroupMessageInput, actor?: CollaborationA
   }
   const leads = team.employees.filter((b) => b.isLead);
   const recipientId = input.recipientId ?? (leads.length === 1 ? leads[0].id : undefined);
-  if (!recipientId || !team.employees.some((b) => b.id === recipientId)) throw new Error('recipient must be an unambiguous member of this team');
+  if (recipientId === 'all' && actor) throw new Error('only a human can request all employees');
+  if (!recipientId || !(recipientId === 'all' ? team.employees.length : team.employees.some((b) => b.id === recipientId))) throw new Error('recipient must be an unambiguous member of this team');
   if (input.replyToMessageId && !team.teamMessages?.some((m) => m.id === input.replyToMessageId)) throw new Error('reply source not found in team');
   const source = actor ? currentActor(team, actor) : undefined;
   if (source && (source.depth >= 2 || (team.collaborationDeliveries ?? []).filter((d) => (d.rootDeliveryId ?? d.id) === (source.rootDeliveryId ?? source.id)).length >= 8)) throw new Error('collaboration dispatch budget exhausted');
   if (actor?.employeeId === recipientId) throw new Error('cannot dispatch to yourself');
   const message: MessageItem = { id: id(), sender: actor ? 'employee' : 'user', senderId: actor?.employeeId,
     senderName: actor ? team.employees.find((b) => b.id === actor.employeeId)!.displayName : '你',
-    text, time: now(), recipientId, requestRecipientId: input.recipientId, requestId,
+    text, time: now(), broadcast:recipientId === 'all', recipientId, requestRecipientId: input.recipientId, requestId,
     replyToMessageId: input.replyToMessageId, sourceRunId: actor?.runId, contextTagIds };
   const delivery: CollaborationDelivery = { id: id(), teamId: team.id, messageId: message.id, employeeId: recipientId,
     status: 'queued', depth: source ? source.depth + 1 : 0, rootDeliveryId: source ? source.rootDeliveryId ?? source.id : undefined,
     createdAt: now(), updatedAt: now() };
   message.deliveryId = delivery.id;
   (team.teamMessages ??= []).push(message);
-  (team.collaborationDeliveries ??= []).push(delivery);
+  const recipients = recipientId === 'all' ? team.employees.map(employee=>employee.id) : [recipientId];
+  (team.collaborationDeliveries ??= []).push(...recipients.map((employeeId,index)=>({...delivery,id:index===0?delivery.id:id(),employeeId})));
   return message;
 }
 
@@ -101,7 +103,7 @@ export function createCollaborationApi(ports: {
       }
       const recipient = team.employees.find((employee) => employee.id === delivery.employeeId);
       const subscribedTags = recipient?.activeSession.contextTagIds ?? [];
-      const exposed = subscribedTags.length ? messages.filter((message) => message.id !== trigger.id && message.contextTagIds?.some((tag) => subscribedTags.includes(tag))) : [];
+      const exposed = messages.filter((message) => message.id !== trigger.id && (message.broadcast || message.contextTagIds?.some((tag) => subscribedTags.includes(tag))));
       const conversation = [...exposed, ...ancestors].filter((message, index, all) => all.findIndex((item) => item.id === message.id) === index).slice(-30);
       return { weworkSessionId: team.weworkSessionId ?? team.id, teamId, deliveryId, trigger: { ...trigger },
         conversation: conversation.map((m) => ({ id: m.id, senderId: m.senderId, senderName: m.senderName, text: m.text.slice(0, 1500), contextTagIds: m.contextTagIds, truncated: m.text.length > 1500 })),
@@ -115,7 +117,7 @@ export function createCollaborationApi(ports: {
       if (deliveryId) {
         const delivery = deliveryIn(team, deliveryId), recipient = team.employees.find((employee) => employee.id === delivery.employeeId);
         const subscribedTags = recipient?.activeSession.contextTagIds ?? [];
-        let exposed = message.id === delivery.messageId || Boolean(message.contextTagIds?.some((tag) => subscribedTags.includes(tag)));
+        let exposed = message.broadcast === true || message.id === delivery.messageId || Boolean(message.contextTagIds?.some((tag) => subscribedTags.includes(tag)));
         let parent = messages.find((item) => item.id === delivery.messageId)?.replyToMessageId;
         const seen = new Set<string>();
         while (!exposed && parent && !seen.has(parent)) {
@@ -141,7 +143,7 @@ export function createCollaborationApi(ports: {
       // Missing recipients must not produce a reply attributed to a removed member.
       const employee = team.employees.find((b) => b.id === delivery.employeeId);
       if (outcome.status === 'succeeded' && !employee) throw new Error('delivery recipient no longer exists');
-      if (outcome.status === 'succeeded' && outcome.finalText?.trim() && !team.teamMessages?.some((m) => m.sourceRunId === runId && m.replyToMessageId === delivery.messageId && m.finalReply)) {
+      if (outcome.status === 'succeeded' && outcome.finalText?.trim() && !team.teamMessages?.some((m) => m.sourceRunId === runId && m.replyToMessageId === delivery.messageId && m.sender === 'employee')) {
         (team.teamMessages ??= []).push({ id: id(), sender: 'employee', senderId: employee!.id, senderName: employee!.displayName,
           text: validText(outcome.finalText, 1000000), time: now(), sourceRunId: runId, replyToMessageId: delivery.messageId, deliveryId, finalReply: true,
           contextTagIds: [...(team.teamMessages?.find((item) => item.id === delivery.messageId)?.contextTagIds ?? [])] });

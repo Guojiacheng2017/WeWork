@@ -17,7 +17,7 @@ function fakeRpc(onPrompt) {
       if (command.type === 'prompt') { output({ id: command.id, type: 'response', command: 'prompt', success: true }); void Promise.resolve(onPrompt?.({ args, options, output })).then(() => { output({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'streamed' } }); output({ type: 'tool_execution_end', toolName: 'wework_report_progress' }); output({ type: 'agent_settled' }); }); }
       else if (command.type === 'get_last_assistant_text') output({ id: command.id, type: 'response', command: command.type, success: true, data: { text: 'done' } });
       else if (command.type === 'get_messages') output({ id: command.id, type: 'response', command: command.type, success: true, data: { messages: [{ role: 'assistant', content: 'done' }] } });
-      else if (command.type === 'get_session_stats') output({ id: command.id, type: 'response', command: command.type, success: true, data: { tokens: { input: 4, output: 2 } } });
+      else if (command.type === 'get_session_stats') output({ id: command.id, type: 'response', command: command.type, success: true, data: { tokens: { input: 4, output: 2, cacheRead: 1, cacheWrite: 0, total: 7 }, contextUsage: { tokens: 60, contextWindow: 200, percent: 30 } } });
       else if (command.type === 'abort') { output({ type: 'response', command: 'abort', success: true }); child.kill(); }
     } });
     child.stdin.on('finish', () => { child.exitCode = 0; queueMicrotask(() => child.emit('close', 0)); }); return child;
@@ -33,7 +33,7 @@ test('Pi RPC uses Harness-owned auth/default model and bridges WeWork tools', as
     const response = await fetch(options.env.WEWORK_PI_TOOL_URL, { method: 'POST', headers: { authorization: `Bearer ${options.env.WEWORK_PI_TOOL_TOKEN}`, 'content-type': 'application/json' }, body: JSON.stringify({ name: tool.name, callId: 'call-1', arguments: {} }) }); assert.equal(response.status, 200);
   });
   const result = await executePiRun(spec(), { executablePath: process.execPath, extensionPath: '/tmp/pi-wework-extension.mjs', spawnProcess, tools: [tool], emit: (event) => events.push(event) });
-  assert.equal(result.nativeSessionId, 'wework-session'); assert.equal(result.finalText, 'done'); assert.deepEqual(result.usage, { input: 4, output: 2 }); assert.deepEqual(invocation, { callId: 'call-1', args: {} }); assert.deepEqual(events, [{ type: 'assistant.delta', text: 'streamed' }, { type: 'assistant.activity', activity: 'tool', text: 'wework_report_progress 完成' }, { type: 'wework.updated' }]);
+  assert.equal(result.nativeSessionId, 'wework-session'); assert.equal(result.finalText, 'done'); assert.deepEqual(result.usage, { input: 4, output: 2, cacheRead: 1, cacheWrite: 0, total: 7, context: { tokens: 60, harnessContextWindow: 200, modelContextWindow: 200, effectiveLimit: 160, percent: 37.5 } }); assert.deepEqual(invocation, { callId: 'call-1', args: {} }); assert.deepEqual(events, [{ type: 'assistant.delta', text: 'streamed' }, { type: 'assistant.activity', activity: 'tool', text: 'wework_report_progress 完成' }, { type: 'wework.updated' }]);
 });
 
 test('employee may request a Pi-discovered model without WeWork connection settings', async () => {
@@ -79,3 +79,39 @@ test('Pi cancellation sends RPC abort and waits for process shutdown', async () 
   await new Promise((resolve) => setImmediate(resolve)); controller.abort(new Error('cancelled'));
   await assert.rejects(running); assert.equal(child.killed, true);
 });
+
+test('Pi forwards steering to the existing RPC child while the prompt is active',async()=>{
+ const done=Promise.withResolvers(), ready=Promise.withResolvers();let received;let controls;
+ const base=fakeRpc(()=>done.promise);
+ const spawnProcess=(...args)=>{const child=base(...args);child.stdin.on('data',chunk=>{const command=JSON.parse(chunk.toString());if(command.type==='steer'){received=command.message;child.stdout.write(JSON.stringify({id:command.id,type:'response',success:true})+'\n')}});return child};
+ const running=executePiRun(spec(),{executablePath:process.execPath,extensionPath:'/tmp/pi-wework-extension.mjs',spawnProcess,registerControls:value=>{controls=value;if(value)ready.resolve()}});
+ await ready.promise;await controls.steer('Use the revised goal');assert.equal(received,'Use the revised goal');done.resolve();await running;assert.equal(controls,null);
+});
+
+test('missing employee workspace fails before spawning instead of leaving a running prompt', async () => {
+  await assert.rejects(executePiRun(spec('/tmp/wework-missing-directory-937241'), {
+    spawnProcess: () => { throw new Error('must not spawn'); },
+  }), error => error.code === 'PI_WORKSPACE_MISSING');
+});
+
+for (const phase of ['prompt', 'get_last_assistant_text']) {
+  test(`Pi exit during ${phase} rejects the waiting request`, { timeout: 2000 }, async () => {
+    const spawnProcess = () => {
+      const child = new EventEmitter();
+      Object.assign(child, { stdout: new PassThrough(), stderr: new PassThrough(), stdin: new PassThrough(), exitCode: null, killed: false });
+      child.kill = () => { child.killed = true; child.exitCode = 1; child.emit('close', 1); };
+      child.stdin.on('data', chunk => {
+        const request = JSON.parse(chunk.toString());
+        queueMicrotask(() => {
+          if (request.type === phase) { child.stderr.write('test executor startup failure'); child.kill(); }
+          else if (request.type === 'prompt') {
+            child.stdout.write(JSON.stringify({ type: 'response', id: request.id, success: true }) + '\n');
+            child.stdout.write(JSON.stringify({ type: 'agent_settled' }) + '\n');
+          }
+        });
+      });
+      return child;
+    };
+    await assert.rejects(executePiRun(spec(), { executablePath: process.execPath, extensionPath: '/tmp/pi-wework-extension.mjs', spawnProcess }), /test executor startup failure/);
+  });
+}

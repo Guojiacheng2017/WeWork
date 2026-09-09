@@ -9,6 +9,27 @@ import { resolveWeWorkConfiguration } from '../src/host/wework-configuration.js'
 import { TeamPartitionedWeWorkStorage } from '../src/host/team-partitioned-wework-storage.js';
 import { discoverAvailableSkills } from '../src/skill-loader.js';
 
+test('Pi completion persists real Context usage on the employee Session', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'wework-pi-context-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const wework = new WeWorkService(new FileWeWorkStorage(join(root, 'state.json')));
+  const team = await wework.api.createTeam({ name: 'Pi team' });
+  const employeeId = team.employees[0].id;
+  const spec = { employeeId, runtimeProfile: { adapter: 'pi' }, wework: { group: false, chat: true } };
+
+  await wework.finish(spec, { finalText: 'done', usage: { input: 40, output: 10, cacheRead: 20, cacheWrite: 5, total: 75, context: { tokens: 60, harnessContextWindow: 200, modelContextWindow: 200, effectiveLimit: 160, percent: 37.5 } } });
+
+  const session = (await wework.api.snapshot()).teams[0].employees[0].activeSession;
+  assert.equal(session.contextRatio, 37.5);
+  assert.match(session.contextMeasuredAt, /^\d{4}-\d{2}-\d{2}T/);
+  assert.deepEqual(session.metrics, [
+    { label: 'Context tokens', value: 60, maximum: 160, unit: 'tokens' },
+    { label: 'Input tokens', value: 40, maximum: 160, unit: 'tokens' },
+    { label: 'Output tokens', value: 10, maximum: 160, unit: 'tokens' },
+    { label: 'Cache read', value: 20, maximum: 160, unit: 'tokens' },
+    { label: 'Cache write', value: 5, maximum: 160, unit: 'tokens' },
+  ]);
+});
+
 test('Host refuses to archive or delete a team while one of its employees is running', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'wework-team-lifecycle-')); t.after(() => rm(root, { recursive: true, force: true }));
   const wework = new WeWorkService(new FileWeWorkStorage(join(root, 'state.json')));
@@ -286,4 +307,76 @@ test('startup reconciliation fully initializes workspaces imported from legacy h
   await wework.reconcileWorkspaces();
   assert.equal(await readFile(teamPaths.weworkPrompt, 'utf8'), 'Customized migrated instructions');
   assert.deepEqual(JSON.parse(await readFile(employeePaths.weworkConfig, 'utf8')), { theme: 'custom' });
+});
+
+test('renderer broadcasts preserve inline tags without accepting a forged actor',async(t)=>{
+ const root=await mkdtemp(join(tmpdir(),'wework-broadcast-'));t.after(()=>rm(root,{recursive:true,force:true}));
+ const service=new WeWorkService(new FileWeWorkStorage(join(root,'state.json')));
+ const team=await service.api.createTeam({name:'Broadcast'});
+ const message=await service.call('sendTeamMessage',[team.id,'Hello #进度',{employeeId:team.employees[0].id,runId:'forged'},['进度']]);
+ assert.equal(message.sender,'user');assert.equal(message.broadcast,true);assert.deepEqual(message.contextTagIds,['进度']);assert.equal(message.sourceRunId,undefined);
+});
+
+test('desktop project import validates and preserves the previous database on failure', async t => {
+ const root=await mkdtemp(join(tmpdir(),'wework-project-import-'));t.after(()=>rm(root,{recursive:true,force:true}));
+ const service=new WeWorkService(new FileWeWorkStorage(join(root,'state.json')));
+ const team=await service.api.createTeam({name:'Import test'});
+ await service.call('configureTeamModules',[team.id,{projectManagement:{installed:true,enabled:true,capabilities:['issues']}}]);
+ await service.call('createCollaborationWorkItem',[team.id,{projectId:'project-main',title:'Saved item'}]);
+ const before=(await service.api.snapshot()).teams[0].collaborationDatabase;
+ await assert.rejects(service.call('replaceCollaborationDatabase',[team.id,{}]));
+ assert.deepEqual((await service.api.snapshot()).teams[0].collaborationDatabase,before);
+ await service.call('replaceCollaborationDatabase',[team.id,before]);
+ assert.deepEqual((await service.api.snapshot()).teams[0].collaborationDatabase,before);
+});
+
+test('restarting employee context waits for execution and retains old messages as history', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'wework-context-lifecycle-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const storage = new FileWeWorkStorage(join(root, 'state.json'));
+  const wework = new WeWorkService(storage);
+  const team = await wework.api.createTeam({ name: 'Sessions' });
+  const id = team.employees[0].id;
+  const original = team.employees[0].activeSession.id;
+  let failStop = true;
+  wework.attachCoordinator({ runtime: { active: new Map() },
+    withEmployees: async (ids, fn) => { assert.deepEqual(ids, [id]); return fn(); },
+    stopEmployee: async () => { if (failStop) throw new Error('cannot stop'); await wework.api.sendAssistantMessage(id, 'final old reply'); },
+  });
+  await assert.rejects(wework.call('resetEmployeeContext', [id]), /cannot stop/);
+  assert.equal((await wework.api.snapshot()).teams[0].employees[0].activeSession.id, original);
+  failStop = false;
+  await wework.call('resetEmployeeContext', [id]);
+  const employee = (await new WeWorkService(storage).api.snapshot()).teams[0].employees[0];
+  assert.notEqual(employee.activeSession.id, original);
+  assert.equal(employee.activeSession.messages.length, 0);
+  assert.equal(employee.sessionHistory[0].messages.at(-1).text, 'final old reply');
+});
+
+test('native command dispatch rejects unsupported commands and uses authoritative employee session', async () => {
+  let saved=null, received;
+  const wework = new WeWorkService({getItem:()=>saved,setItem:(_key,value)=>{saved=value;}}, {nativePiCommand:async(spec,command)=>{received={spec,command};return {totalMessages:3};}});
+  const team=await wework.api.createTeam({name:'Native',runtime:'Workspace'});
+  const id=team.employees[0].id;
+  const profile=await wework.api.createRuntimeProfile({name:'Pi',adapter:'pi',model:{provider:'pi',modelId:'default'},enabled:true,systemPrompt:'',thinkingLevel:'off'});
+  await wework.api.updateEmployee(id,{displayName:'Native',roleName:'QA',runtime:'Pi',skills:[],defaultRuntimeProfileId:profile.id});
+  wework.attachCoordinator({transitioning:new Set(),withAdmission:async(employeeId,fn)=>{assert.equal(employeeId,id);return fn();},runtime:{}});
+  await wework.call('nativeHarnessCommand',[id,'pi:status']);
+  assert.equal(received.spec.session.id,`${team.employees[0].activeSession.id}-chat-${profile.id}`);
+  assert.equal(received.command,'status');
+  wework.nativePiCommand=async()=>{throw new Error('Nothing to compact (session too small)');};
+  assert.deepEqual(await wework.call('nativeHarnessCommand',[id,'pi:compact']),{skipped:true});
+  await assert.rejects(wework.call('nativeHarnessCommand',[id,'pi:clear']),/不支持/);
+});
+test('missing legacy generated employee path resolves to canonical directory without rewriting custom paths',async(t)=>{
+ const root=await mkdtemp(join(tmpdir(),'legacy-employee-'));t.after(()=>rm(root,{recursive:true,force:true}));
+ const layout=new WeWorkWorkspaceLayout({weworkRoot:root,configRoot:join(root,'.config')});
+ const wework=new WeWorkService(new FileWeWorkStorage(join(root,'state.json')),{workspaceLayout:layout});
+ const team=await wework.api.createTeam({name:'Legacy',runtime:'Workspace'});const id=team.employees[0].id;
+ const profile=await wework.api.createRuntimeProfile({name:'Pi',adapter:'pi',model:{provider:'pi',modelId:'default'},enabled:true,systemPrompt:'',thinkingLevel:'off'});
+ const input={displayName:'Worker',roleName:'QA',runtime:'Pi',skills:[],defaultRuntimeProfileId:profile.id};
+ await wework.api.updateEmployee(id,{...input,workspaceAssignment:{kind:'local',rootPath:join(root,team.name,'employees',id)}});
+ const spec={id:'test',employeeId:id,workId:'chat-test',work:{goal:'hello'}};
+ const prepared=await wework.prepare(spec);assert.equal(prepared.workspace.rootPath,layout.paths(team.id,id).root);
+ await wework.api.updateEmployee(id,{...input,workspaceAssignment:{kind:'local',rootPath:join(root,'custom-missing')}});
+ assert.equal((await wework.prepare(spec)).workspace.rootPath,join(root,'custom-missing'));
 });

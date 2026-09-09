@@ -106,3 +106,17 @@ test('resolved context limits trim a compatible portable checkpoint before execu
   assert.deepEqual(received.session.messages.map((message) => message.content), ['3', '4', '5']);
   assert.deepEqual((await store.getCheckpoint('limited-session')).messages.map((message) => message.content), ['4', '5', '6']);
 });
+
+test('steering reaches the active executor without starting a duplicate run',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'wework-steer-'));const ready=Promise.withResolvers();const finish=Promise.withResolvers();const received=[];
+ const manager=new RuntimeManager({store:new CheckpointStore(root),journal:new EventJournal(),execute:async(_spec,{registerControls})=>{registerControls({steer:async message=>received.push(message)});ready.resolve();await finish.promise;return {messages:[],finalText:'done'}}});
+ await manager.start({id:'steer-run',employeeId:'employee',runtimeProfile:{adapter:'pi'},session:{}});await ready.promise;
+ assert.deepEqual(await manager.steerEmployee('employee','Change direction'),{accepted:true,runId:'steer-run'});assert.deepEqual(received,['Change direction']);assert.equal(manager.active.size,1);
+ finish.resolve();await waitForTerminal(manager,'steer-run');
+ assert.deepEqual(await manager.steerEmployee('idle','hello'),{accepted:false});
+});
+
+test('private steering cannot enter an active public group run',async()=>{
+ const manager=new RuntimeManager({});manager.active.set('group',{employeeId:'employee',group:true,adapter:'pi'});
+ await assert.rejects(manager.steerEmployee('employee','private note'),error=>error.code==='GROUP_RUN_ACTIVE');
+});

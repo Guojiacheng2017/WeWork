@@ -15,6 +15,7 @@ export type ContextMetric = {
 };
 
 export type MessageItem = {
+  broadcast?: boolean;
   contextTagIds?: string[];
   sourceRunId?: string;
   senderId?: string;
@@ -217,15 +218,21 @@ export function normalizeWorkspaceAssignment(input: unknown): WorkspaceAssignmen
   throw invalidWorkspaceAssignment();
 }
 
+
 export type EmployeeSession = {
+  title?: string;
   contextTagIds?: string[];
+  contextMeasuredAt?: string;
   id: string;
   contextRatio: number; // 0 - 100
   updatedAt: string;
   messages: MessageItem[];
   metrics: ContextMetric[];
   execution?: SessionExecution;
+  permissionMode?: AgentPermissionMode;
 };
+
+export type AgentPermissionMode = 'ask' | 'auto' | 'full';
 
 export type ArtifactRef = {
   id: string;
@@ -257,12 +264,15 @@ export type WeWorkEmployee = {
   roleName: string;
   color: string;
   status: 'idle' | 'working' | 'blocked' | 'success' | 'error';
+  acknowledgedErrorKey?: string;
+  executionActivity?: {runId?:string;state:'idle'|'working'|'waiting'|'error';detail:string;updatedAt:string};
   isLead?: boolean;
   runtime: 'Pi' | 'Claude Code' | 'DSH' | 'Workspace';
   defaultRuntimeProfileId?: string;
   workspaceAssignment?: WorkspaceAssignment;
   builtInSkills: SkillRef[];
   activeSession: EmployeeSession;
+  sessionHistory?: EmployeeSession[];
   artifacts: ArtifactItem[];
   currentWorkItem?: WorkItem;
   queuedWorkItems?: WorkItem[];
@@ -295,6 +305,7 @@ export type WeWorkTeam = {
   collaborationDeliveries?: CollaborationDelivery[];
   handoffs?: Handoff[];
   cancelledWorks?: WorkItem[];
+  completedWorks?: WorkItem[];
   id: string;
   name: string;
   description: string;

@@ -1,5 +1,7 @@
+import { operationErrorMessage } from '../domain/operationError';
+import { employeeErrorKey } from '../domain/employeeWorkStatus';
 import { create } from 'zustand';
-import { WeWorkTeam, WeWorkEmployee, WorkItem, TeamView, RoleNode, RuntimeProfile, SessionExecution, WorkflowTemplate, WorkspaceAssignment } from '../domain/wework';
+import { WeWorkTeam, WeWorkEmployee, WorkItem, TeamView, RoleNode, RuntimeProfile, SessionExecution, WorkflowTemplate, WorkspaceAssignment, AgentPermissionMode } from '../domain/wework';
 import { hostManagedWeWork, localWeWorkApi, weworkApi, weworkMode } from '../api/weworkApi';
 import { publishGroupMessage } from '../runtime/groupMessaging';
 import { LocalRunScheduler } from '../runtime/localRunScheduler';
@@ -16,10 +18,9 @@ const readTopologyPreference = (): TeamView | null => {
   return value === 'roundTable' || value === 'workflowDag' || value === 'teamManagement' || value === 'issues' || value === 'board' || value === 'gantt' ? value : null;
 };
 const availableTopology = (team: WeWorkTeam | undefined, preferred: TeamView): TeamView => {
-  if (preferred === 'roundTable' || preferred === 'teamManagement') return preferred;
+  if (preferred === 'roundTable' || preferred === 'workflowDag' || preferred === 'teamManagement') return preferred;
   const capabilities = team?.modules?.projectManagement.enabled ? team.modules.projectManagement.capabilities : [];
-  const required: ProjectCapability = preferred === 'workflowDag' ? 'dag' : preferred;
-  return capabilities.includes(required) ? preferred : 'roundTable';
+  return capabilities.includes(preferred as ProjectCapability) ? preferred : 'roundTable';
 };
 
 interface WeWorkState {
@@ -39,6 +40,8 @@ interface WeWorkState {
   settingsSection: 'general' | 'execution' | 'storage' | 'about';
   serviceStatus: 'loading' | 'ready' | 'error';
   serviceError: string | null;
+  dismissError: () => void;
+  workbenchNotice: {employeeId:string;text:string} | null;
   weworkMode: 'local' | 'remote';
   eventCursor: number;
 
@@ -66,8 +69,8 @@ interface WeWorkState {
   deleteTeam: (teamId: string) => Promise<void>;
   updateTeamWorkspace: (teamId: string, workspaceAssignment?: WorkspaceAssignment) => Promise<void>;
   addEmployee: (teamId: string, displayName: string, roleName: string, runtime: 'Pi' | 'Claude Code' | 'DSH' | 'Workspace', sessionExecution: SessionExecution) => Promise<void>;
-  removeEmployee: (teamId: string, employeeId: string) => void;
-  updateEmployee: (employeeId: string, input: { displayName: string; roleName: string; runtime: WeWorkEmployee['runtime']; skills: WeWorkEmployee['builtInSkills']; defaultRuntimeProfileId?: string; workspaceAssignment?: WorkspaceAssignment; sessionExecution?: SessionExecution; sessionContextTagIds?: string[]; startNewSession?: boolean }) => Promise<void>;
+  removeEmployee: (teamId: string, employeeId: string) => Promise<void>;
+  updateEmployee: (employeeId: string, input: { displayName: string; roleName: string; runtime: WeWorkEmployee['runtime']; skills: WeWorkEmployee['builtInSkills']; defaultRuntimeProfileId?: string; workspaceAssignment?: WorkspaceAssignment; sessionExecution?: SessionExecution; sessionContextTagIds?: string[]; sessionPermissionMode?: AgentPermissionMode; color?: string; startNewSession?: boolean }) => Promise<void>;
   createRuntimeProfile: (input: Omit<RuntimeProfile, 'id' | 'createdAt' | 'updatedAt'>) => Promise<RuntimeProfile | undefined>;
   resetEmployeeContext: (employeeId: string) => Promise<void>;
   setTeamLead: (teamId: string, employeeId: string) => void;
@@ -75,12 +78,12 @@ interface WeWorkState {
   addWorkflowNode: (teamId: string, position?: { x: number; y: number }) => string;
   updateWorkflowNode: (teamId: string, nodeId: string, patch: Partial<RoleNode>) => void;
   removeWorkflowNode: (teamId: string, nodeId: string) => void;
-  sendWorkbenchMessage: (employeeId: string, text: string) => void;
+  sendWorkbenchMessage: (employeeId: string, text: string) => Promise<boolean>;
   sendTeamMessage: (teamId: string, text: string, recipientId?: string, contextTagIds?: string[]) => Promise<void>;
   cancelGroupDelivery: (teamId:string,deliveryId:string)=>Promise<void>;
   configureTeamModules: (teamId: string, modules: TeamModuleRegistry) => Promise<void>;
   syncPlaneProject: (teamId: string) => Promise<void>;
-  createProjectWorkItem: (teamId: string, title: string) => Promise<void>;
+  createProjectWorkItem: (teamId: string, title: string, statusId?: string) => Promise<void>;
   updateProjectWorkItem: (teamId: string, workItemId: string, patch: Partial<CollaborationWorkItem>) => Promise<void>;
   deleteProjectData: (teamId: string) => Promise<void>;
   hydrate: () => Promise<void>;
@@ -104,10 +107,21 @@ const hasWorkflowCycle = (nodes: RoleNode[]) => {
   return nodes.some((node) => visit(node.id));
 };
 
+const workbenchSubmissions = new Map<string, Promise<void>>();
+// Serialize short UI commands, not the lifetime of a model run. This keeps a
+// fast send/create/switch sequence attached to the intended session.
+const queueWorkbenchOperation = (employeeId: string, operation: () => Promise<void>) => {
+  const previous = workbenchSubmissions.get(employeeId) ?? Promise.resolve();
+  const pending = previous.catch(() => {}).then(operation);
+  workbenchSubmissions.set(employeeId, pending);
+  void pending.finally(() => { if (workbenchSubmissions.get(employeeId) === pending) workbenchSubmissions.delete(employeeId); }).catch(() => {});
+  return pending;
+};
 const reportError = (set: (patch: Partial<WeWorkState>) => void, error: unknown) =>
-  set({ serviceStatus: 'error', serviceError: error instanceof Error ? error.message : String(error) });
+  set({ serviceError: operationErrorMessage(error) });
 
 const applyRuntimeTerminal = async (employeeId: string, status: string, get: () => WeWorkState) => {
+  if (!['succeeded', 'failed', 'cancelled'].includes(status)) return;
   const employee = get().teams.flatMap((team) => team.employees).find((employee) => employee.id === employeeId);
   if (!employee?.currentWorkItem) return;
   if (weworkMode === 'local') return; // Execution outcome is not delivery acceptance.
@@ -132,6 +146,8 @@ export const useWeWorkStore = create<WeWorkState>()((set, get) => ({
   settingsSection: 'general',
   serviceStatus: 'loading',
   serviceError: null,
+  dismissError: () => set({ serviceError: null }),
+  workbenchNotice: null,
   weworkMode,
   eventCursor: 0,
 
@@ -150,9 +166,14 @@ export const useWeWorkStore = create<WeWorkState>()((set, get) => ({
         serviceStatus: 'ready', serviceError: null });
       if (runScheduler) {
         const recovered = await runScheduler.recover();
-        for (const run of recovered) await applyRuntimeTerminal(run.employeeId, run.status, get);
+        for (const run of recovered) {
+          if (hostManagedWeWork) continue; // The Host has already persisted these outcomes.
+          if (run.promptRun) {
+            if (run.status === 'succeeded' && run.finalText) await weworkApi.sendAssistantMessage(run.employeeId, run.finalText);
+          } else await applyRuntimeTerminal(run.employeeId, run.status, get);
+        }
       }
-    } catch (error) { reportError(set, error); }
+    } catch (error) { set({ serviceStatus: 'error', serviceError: operationErrorMessage(error) }); }
   },
 
   connectEvents: () => {
@@ -215,10 +236,11 @@ export const useWeWorkStore = create<WeWorkState>()((set, get) => ({
       return;
     }
     if (['run.succeeded', 'run.failed', 'run.cancelled'].includes(event.type)) {
+      if (get().workbenchNotice?.employeeId === employeeId) set({workbenchNotice:null});
       if (hostManagedWeWork) {
         runScheduler?.markTerminal(employeeId);
         void get().hydrate();
-        if (event.type !== 'run.succeeded') reportError(set, new Error(('error' in event ? event.error : undefined) ?? 'Execution cancelled'));
+        if (event.type === 'run.failed') reportError(set, new Error(event.error));
         return;
       }
       const promptRun = runScheduler?.isPromptRun(event.runId);
@@ -227,7 +249,7 @@ export const useWeWorkStore = create<WeWorkState>()((set, get) => ({
           void weworkApi.sendAssistantMessage(employeeId, event.finalText).then(() => { runScheduler?.markTerminal(employeeId); return get().hydrate(); }).catch((error) => reportError(set, error));
         } else {
           runScheduler?.markTerminal(employeeId);
-          reportError(set, new Error(event.type === 'run.failed' ? event.error : 'Runtime run cancelled'));
+          if (event.type === 'run.failed') reportError(set, new Error(event.error));
         }
         return;
       }
@@ -253,13 +275,20 @@ export const useWeWorkStore = create<WeWorkState>()((set, get) => ({
   setTopology: (topology) => { window.localStorage.setItem('wework.lastTopology', topology); set({ topology }); },
   configureTeamModules: async (teamId, modules) => { try { await weworkApi.configureTeamModules(teamId, modules); await get().hydrate(); } catch (error) { reportError(set, error); throw error; } },
   syncPlaneProject: async () => {},
-  createProjectWorkItem: async (teamId, title) => { try { await weworkApi.createCollaborationWorkItem(teamId, { projectId: 'project-main', title }); await get().hydrate(); } catch (error) { reportError(set, error); throw error; } },
+  createProjectWorkItem: async (teamId, title, statusId) => { try { await weworkApi.createCollaborationWorkItem(teamId, { projectId: 'project-main', title, statusId }); await get().hydrate(); } catch (error) { reportError(set, error); throw error; } },
   updateProjectWorkItem: async (teamId, workItemId, patch) => { try { await weworkApi.updateCollaborationWorkItem(teamId, workItemId, patch); await get().hydrate(); } catch (error) { reportError(set, error); throw error; } },
   deleteProjectData: async (teamId) => { try { await weworkApi.deleteCollaborationDatabase(teamId, { confirm: true }); set({ topology: 'roundTable' }); await get().hydrate(); } catch (error) { reportError(set, error); throw error; } },
   setDraggingWorkItemId: (draggingWorkItemId) => set({ draggingWorkItemId }),
   setDragHoveredEmployeeId: (dragHoveredEmployeeId) => set({ dragHoveredEmployeeId }),
 
   openWorkbench: (employeeId) => {
+    const id = employeeId ?? get().selectedEmployeeId;
+    const team = get().teams.find(t => t.employees.some(e => e.id === id));
+    const employee = team?.employees.find(e => e.id === id);
+    const key = employee && employeeErrorKey(employee, team?.collaborationDeliveries);
+    if (id && key && weworkMode === 'local') {
+      void localWeWorkApi.acknowledgeEmployeeError(id, key).then(() => get().hydrate()).catch(error => reportError(set, error));
+    }
     if (employeeId) {
       set({ selectedEmployeeId: employeeId, isWorkbenchOpen: true });
     } else {
@@ -360,10 +389,12 @@ export const useWeWorkStore = create<WeWorkState>()((set, get) => ({
   },
 
   removeEmployee: (teamId, employeeId) => {
-    void weworkApi.removeEmployee(teamId, employeeId).then(async () => {
+    return queueWorkbenchOperation(employeeId, async () => {
+      await weworkApi.removeEmployee(teamId, employeeId);
+      runScheduler?.markTerminal(employeeId);
       if (get().selectedEmployeeId === employeeId) set({ selectedEmployeeId: null, isWorkbenchOpen: false });
       await get().hydrate();
-    }).catch((error) => reportError(set, error));
+    }).catch((error) => { reportError(set, error); throw error; });
   },
 
   updateEmployee: async (employeeId, input) => {
@@ -388,14 +419,14 @@ export const useWeWorkStore = create<WeWorkState>()((set, get) => ({
     }
   },
 
-  resetEmployeeContext: async (employeeId) => {
+  resetEmployeeContext: (employeeId) => queueWorkbenchOperation(employeeId, async () => {
     try {
       await weworkApi.resetEmployeeContext(employeeId);
-      await get().hydrate();
+      runScheduler?.markTerminal(employeeId); set({workbenchNotice:null}); await get().hydrate();
     } catch (error) {
-      reportError(set, error);
+      reportError(set, error); throw error;
     }
-  },
+  }),
 
   setTeamLead: (teamId, employeeId) => {
     void weworkApi.setLead(teamId, employeeId).then(() => get().hydrate()).catch((error) => reportError(set, error));
@@ -468,42 +499,20 @@ export const useWeWorkStore = create<WeWorkState>()((set, get) => ({
     }),
   })),
 
-  sendWorkbenchMessage: (employeeId, text) => {
+  sendWorkbenchMessage: async (employeeId, text) => {
     const trimmed = text.trim();
-    if (!trimmed) return;
-    const { teams, selectedTeamId } = get();
-
-    const updatedTeams = teams.map((team) => {
-      if (team.id !== selectedTeamId) return team;
-      return {
-        ...team,
-        employees: team.employees.map((employee) => {
-          if (employee.id !== employeeId) return employee;
-          const nowTime = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-          const userMsg = {
-            id: `msg-u-${Date.now()}`,
-            sender: 'user' as const,
-            text: trimmed,
-            time: nowTime,
-          };
-          return {
-            ...employee,
-            activeSession: {
-              ...employee.activeSession,
-              messages: [...employee.activeSession.messages, userMsg],
-              contextRatio: Math.min(100, employee.activeSession.contextRatio + 5),
-            },
-          };
-        }),
-      };
-    });
-
-    set({ teams: updatedTeams });
-    void weworkApi.sendMessage(employeeId, trimmed).then(async () => {
+    if (!trimmed) return false;
+    let saved = false;
+    await queueWorkbenchOperation(employeeId, async () => {
+      set({workbenchNotice:null});
+      await weworkApi.sendMessage(employeeId, trimmed);
+      saved = true;
       await get().hydrate();
       if (!runScheduler) throw new Error('请使用 WeWork Desktop App 启动本地 Runtime 后再与助手对话。');
-      await runScheduler.startPrompt(employeeId, trimmed);
+      const result = await runScheduler.sendPrompt(employeeId, trimmed);
+      set({serviceStatus: 'ready', serviceError: null, workbenchNotice:{employeeId,text:result.steered?'补充指令已送入当前执行，将在下一个处理节点生效。':'消息已提交，助手正在处理。'}});
     }).catch((error) => reportError(set, error));
+    return saved;
   },
 
   sendTeamMessage: async (teamId, text, recipientId, contextTagIds) => {
