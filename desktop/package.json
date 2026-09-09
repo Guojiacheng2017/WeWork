@@ -2,6 +2,7 @@
   "name": "wework-desktop",
   "description": "Secure desktop host for WeWork",
   "author": "WeWork",
+  "desktopName": "wework.desktop",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -10,7 +11,8 @@
     "dev": "electron src/main.mjs",
     "test": "node --test",
     "bundle:runtime": "node src/build-runtime.mjs",
-    "package:dir": "npm run bundle:runtime && electron-builder --dir",
+    "package:dir": "npm run bundle:runtime && electron-builder --dir --config.electronDist=../node_modules/electron/dist",
+    "package:linux-arm64": "npm run bundle:runtime && electron-builder --linux deb AppImage --arm64",
     "package:mac": "npm run bundle:runtime && electron-builder --mac",
     "package:win": "npm run bundle:runtime && electron-builder --win zip --x64"
   },
@@ -40,6 +42,21 @@
     "mac": {
       "category": "public.app-category.productivity",
       "identity": null
+    },
+    "linux": {
+      "target": [
+        "deb",
+        "AppImage"
+      ],
+      "category": "Office",
+      "executableName": "wework",
+      "syncDesktopName": true,
+      "artifactName": "wework-${version}-linux-${arch}.${ext}"
+    },
+    "deb": {
+      "packageName": "wework",
+      "maintainer": "WeWork",
+      "synopsis": "wework digital employee collaboration desktop"
     }
   }
 }

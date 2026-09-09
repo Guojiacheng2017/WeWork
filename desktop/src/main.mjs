@@ -37,8 +37,11 @@ const routes = {
   currentWorkspace: ["GET", "/v1/workspaces/current"], chooseLocalWorkspace: ["POST", "/v1/workspaces/local/choose"],
   credentials: ["GET", "/v1/credentials", null, (value) => value.credentials], createCredential: ["POST", "/v1/credentials", (p) => p, (value) => value.ref],
   plugins: ["GET", "/v1/plugins", null, (value) => value.plugins],
+  setPluginEnabled: ["POST", "/v1/plugins/policy", (p) => p, (value) => value.plugins],
+  installPluginFromPath: ["POST", "/v1/plugins/install", (p) => p, (value) => value.plugins],
   invokePlugin: ["POST", "/v1/plugins/invoke", (p) => p],
   testSshWorkspace: ["POST", "/v1/workspaces/ssh/probe", (p) => p], startRun: ["POST", "/v1/runs", (p) => p],
+  steerEmployee: ["POST", (p) => `/v1/employees/${encodeURIComponent(p.employeeId)}/steer`, (p) => ({ message: p.message })],
   cancelRun: ["POST", (p) => `/v1/runs/${encodeURIComponent(p.runId)}/cancel`], run: ["GET", (p) => `/v1/runs/${encodeURIComponent(p.runId)}`],
   events: ["GET", "/v1/events", null, null, (p) => ({ "last-event-id": String(p.after ?? 0) })],
 };
@@ -48,6 +51,16 @@ ipcMain.handle("wework-host:invoke", async (_event, { method, payload }) => {
   if (method === 'clearDiagnostics') { diagnostics.clear(); return diagnostics.snapshot({ host: supervisor.endpoint ? 'ready' : 'unavailable', pid: supervisor.child?.pid ?? null }); }
   if (method === "chooseLocalWorkspace") {
     return chooseDirectory(BrowserWindow.fromWebContents(_event.sender));
+  }
+  if (method === "installPlugin") {
+    const result = await dialog.showOpenDialog(BrowserWindow.fromWebContents(_event.sender), { title: "选择 WeWork Plugin 目录", properties: ["openDirectory"] });
+    if (result.canceled || !result.filePaths[0]) return null;
+    const route = routes.installPluginFromPath;
+    if (!supervisor.endpoint) throw Object.assign(new Error("WeWork Host unavailable"), { code: "HOST_UNAVAILABLE" });
+    const response = await fetch(`${supervisor.endpoint.url}${route[1]}`, { method: route[0], headers: { authorization: supervisor.authorization(), "content-type": "application/json" }, body: JSON.stringify({ path: result.filePaths[0] }) });
+    const value = await response.json();
+    if (!response.ok) throw Object.assign(new Error(value.error?.message ?? "Plugin install failed"), { code: value.error?.code ?? "HOST_INTERNAL", status: response.status });
+    return route[3](value);
   }
   const route = routes[method]; if (!route) throw new Error("Unsupported WeWork Host method");
   if (!supervisor.endpoint) throw Object.assign(new Error("WeWork Host unavailable"), { code: "HOST_UNAVAILABLE" });
