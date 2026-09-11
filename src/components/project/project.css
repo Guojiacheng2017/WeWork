@@ -1,0 +1,42 @@
+.project-workspace { background: #fff; }
+.project-workspace .project-page { padding: 24px 28px; }
+.project-workspace .project-page-inner { max-width: none; }
+.project-workspace .project-page-inner > h3 { font-size: 22px; letter-spacing: -.025em; }
+.project-workspace .project-page-inner > p { margin-bottom: 12px; }
+.project-workspace .project-create { max-width: 520px; margin: 0 0 12px auto; }
+.project-workspace .project-create input { min-height: 32px; height: 32px; }
+.project-workspace .project-filters { margin-bottom: 16px; }
+.project-workspace .project-filters input,
+.project-workspace .project-filters select { height: 32px; min-height: 32px; font-size: 12px; }
+.project-workspace .project-table { border: 0; border-radius: 0; box-shadow: none; }
+.project-workspace .project-table .project-row { min-width: 980px; grid-template-columns: minmax(210px,1.2fr) 112px 128px 76px 132px minmax(240px,1.5fr) 28px; padding: 0; gap: 0; align-items: stretch; border-bottom: 1px solid #e9eaec; font-size: 13px; }
+.project-workspace .project-row > * { padding: 12px 10px; min-width: 0; border-right: 1px solid #eff0f2; }
+.project-workspace .project-row > button:first-child { align-items: flex-start; font-weight: 500; line-height: 1.65; }
+.project-workspace .project-row > button:first-child svg { margin-top: 4px; color: #939aa5; }
+.project-workspace .project-row .truncate { white-space: normal; overflow: visible; }
+.project-workspace .project-head { background: white; color: #858991; font-weight: 500; text-transform: none; }
+.project-workspace .project-head > * { padding-top: 10px; padding-bottom: 10px; }
+.project-workspace .project-row .project-colored-field { align-self: start; border: 0; border-radius: 0; background: transparent !important; padding: 10px 8px; font-weight: 400; }
+.project-workspace .project-colored-field .ww-select-trigger { min-height: 26px; height: auto; padding: 3px 5px; border: 0; border-radius: 4px; box-shadow: none; background: transparent; font-size: 12px; gap: 5px; }
+.project-workspace .project-colored-field .ww-select-trigger:hover { background: #f0f1f3; }
+.project-workspace .ww-select-trigger > svg:last-child { opacity: 0; width: 10px; }
+.project-workspace .ww-select-trigger:hover > svg:last-child,
+.project-workspace .ww-select-trigger:focus-visible > svg:last-child { opacity: 1; }
+.project-workspace .project-row .project-colored-field input[data-ui="field"] { font-size: 12px; height: 26px; min-height: 26px; padding: 0; color: #727985; }
+.project-workspace .project-description-text { text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; color: #535b67; font-size: 13px; }
+.project-workspace .project-description-text:hover { background: #f6f7f8; }
+.project-workspace .project-row > button:last-child { align-self: start; margin-top: 10px; padding: 4px; opacity: 0; }
+.project-workspace .project-row:hover > button:last-child,
+.project-workspace .project-row:focus-within > button:last-child { opacity: 1; }
+.project-workspace .project-board { display: flex; align-items: stretch; gap: 14px; min-height: 60vh; }
+.project-workspace .project-board section { flex: 1 0 280px; min-width: 280px; max-width: 380px; min-height: 0; padding: 10px; background: #f7f7f8; border: 0; border-radius: 8px; }
+.project-workspace .project-board header { padding: 4px 4px 12px; font-size: 13px; font-weight: 500; }
+.project-workspace .project-board header small { margin-left: 0; color: #858991; font-weight: 400; }
+.project-workspace .project-board article { margin-top: 8px; border: 1px solid #e4e5e8; border-radius: 7px; padding: 12px; box-shadow: 0 1px 2px #10182804; gap: 12px; }
+.project-workspace .project-board article button { font-weight: 500; }
+.project-workspace .project-board article > div:first-child > button:last-child { opacity: 0; }
+.project-workspace .project-board article:hover > div:first-child > button:last-child,
+.project-workspace .project-board article:focus-within > div:first-child > button:last-child { opacity: 1; }
+.project-workspace .project-board section > button { background: transparent; box-shadow: none; border: 1px dashed #dedfe3; min-height: 30px; padding: 5px 8px; }
+.project-workspace .project-board section.board-drop-target { background: #edf6fc; }
+@media (max-width: 700px) { .project-workspace .project-page { padding: 16px; } }

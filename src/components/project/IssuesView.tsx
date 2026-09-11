@@ -1,5 +1,5 @@
 import { DeleteWorkItemButton } from './DeleteWorkItemButton';
-import { Button, Input, NativeSelect, Textarea } from '../ui';
+import { Button, Input, NativeSelect } from '../ui';
 import { Select as AppSelect } from '../ui';
 import { useState } from 'react';
 import { CalendarDays, CircleDot, UserRound } from 'lucide-react';
@@ -24,6 +24,6 @@ export function IssuesView({ database, employees, onCreate, onUpdate, onOpen, on
       <div className="project-colored-field border-sky-200 bg-sky-50 text-sky-800"><AppSelect label={`${item.title} 负责人`} value={item.assigneeIds[0]??''} onChange={value=>onUpdate(item.id,{assigneeIds:value?[value]:[]})} options={[{value:'',label:'未指派',icon:<UserRound className="h-5 w-5 shrink-0"/>},...database.assignees.map(a=>{const person=employees.find(e=>e.id===(a.employeeId??a.id));return {value:a.id,label:a.displayName,icon:person?<span className="h-6 w-6 shrink-0"><WeWorkEmployeeAvatar employee={person} overview/></span>:<UserRound className="h-5 w-5 shrink-0"/>}})]}/></div>
       <label className="project-colored-field" style={{color:priority?.color,backgroundColor:withAlpha(priority?.color??'#64748b','14'),borderColor:withAlpha(priority?.color??'#64748b','35')}}><AppSelect label={`${item.title} 优先级`} value={item.priorityId} onChange={value=>onUpdate(item.id,{priorityId:value})} options={database.priorities.map(p=>({value:p.id,label:p.name,icon:<span className="h-2 w-2 rotate-45" style={{backgroundColor:p.color}}/>}))}/></label>
       <label className={`project-colored-field ${overdue?'border-rose-200 bg-rose-50 text-rose-700':'border-violet-200 bg-violet-50 text-violet-700'}`}><CalendarDays className="h-3.5 w-3.5 shrink-0"/><Input aria-label={`${item.title} 截止日期`} type="date" value={item.dueDate??''} onChange={e=>onUpdate(item.id,{dueDate:e.target.value||undefined})}/></label>
-      <Textarea key={`${item.id}-${item.updatedAt}`} aria-label={`${item.title} 说明与下一步`} defaultValue={item.description} placeholder="添加说明…" rows={1} onBlur={e=>{if(e.target.value!==item.description)onUpdate(item.id,{description:e.target.value})}} className="project-description"/><DeleteWorkItemButton title={item.title} onClick={()=>onDelete(item.id)}/>
+      <button type="button" aria-label={`${item.title} 说明与下一步`} onClick={()=>onOpen(item.id)} className="project-description-text">{item.description || <span className="text-slate-400">添加说明…</span>}</button><DeleteWorkItemButton title={item.title} onClick={()=>onDelete(item.id)}/>
     </div>})}</div>{!items.length&&<p role="status" className="p-6 text-center text-xs text-slate-400">{query||status?'没有匹配的工作项':'创建第一个工作项，开始安排项目。'}</p>}</div>;
 }

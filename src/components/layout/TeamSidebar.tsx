@@ -28,7 +28,7 @@ export const TeamSidebar: React.FC<TeamSidebarProps> = ({ collapsed, onToggle, o
   }, [menu]);
 
   return (
-    <aside aria-label="团队侧边栏" data-collapsed={collapsed} className={`${collapsed ? 'w-[64px]' : 'w-[240px]'} relative h-full bg-white border-r border-slate-200/90 flex flex-col select-none shrink-0 z-10 shadow-xs transition-[width] duration-200 ease-out`}>
+    <aside aria-label="团队侧边栏" data-collapsed={collapsed} className={`${collapsed ? 'w-[64px]' : 'w-[240px]'} relative h-full bg-white border-r border-slate-200/90 flex flex-col select-none shrink-0 z-10 shadow-xs transition-[width] duration-200 ease-out motion-reduce:transition-none`}>
       <div className="wework-window-controls">
         <Button type="button" onClick={onToggle} aria-label={collapsed ? '展开侧边栏' : '收起侧边栏'} title={collapsed ? '展开侧边栏' : '收起侧边栏'}>
           {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
