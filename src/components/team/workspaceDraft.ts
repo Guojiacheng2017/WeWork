@@ -27,6 +27,19 @@ export function createExecutionForCatalogModel(model: HarnessModel, id = `employ
   }, model);
 }
 
+export function createDefaultSdhExecution(id = `employee-execution-${crypto.randomUUID()}`): SessionExecution {
+  return {
+    id,
+    name: 'smalldashharness Session',
+    adapter: 'smalldash',
+    model: { provider: 'smalldashharness', modelId: 'default' },
+    systemPrompt: '',
+    thinkingLevel: 'off',
+    enabled: true,
+    profileRevision: 1,
+  };
+}
+
 export function migrateLegacyCatalogSelection(current: SessionExecution, models: Array<Pick<HarnessModel, 'id' | 'harness' | 'provider' | 'modelId' | 'api' | 'baseUrl' | 'credentialRef' | 'apiKeyEnv' | 'verified'>>): SessionExecution {
   if (current.modelCatalogId || !current.sourceProfileId) return current;
   const harness = current.adapter === 'smalldash' ? 'smalldashharness' : current.adapter;

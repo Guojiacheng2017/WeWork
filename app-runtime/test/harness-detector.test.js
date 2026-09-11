@@ -67,6 +67,89 @@ test('uses where.exe on Windows and reports unavailable installations', async ()
   assert.ok(calls.some(([file]) => file === 'where.exe'));
 });
 
+test('Windows reports the app PATH and lookup failure when Pi is unavailable', async () => {
+  const detector = new HarnessDetector({
+    platform: 'win32',
+    env: { PATH: 'C:\\Windows\\System32;D:\\piharness' },
+    run: async (file, args) => {
+      if (file === 'where.exe' && args[0] === 'pi') throw Object.assign(new Error('INFO: Could not find files'), { code: 1 });
+      throw new Error('unexpected probe');
+    },
+  });
+
+  const pi = (await detector.detect()).find((row) => row.harness === 'pi');
+
+  assert.equal(pi.available, false);
+  assert.match(pi.reason, /where\.exe pi.*Could not find files/);
+  assert.deepEqual(pi.diagnostics, {
+    lookupCommand: 'where.exe pi',
+    path: 'C:\\Windows\\System32;D:\\piharness',
+    candidates: [],
+    attempts: [],
+  });
+});
+
+test('Windows reports every failed Pi version probe', async () => {
+  const detector = new HarnessDetector({
+    platform: 'win32',
+    windowsCommandWrapperPath: 'D:\\app\\pi-command-wrapper.ps1',
+    run: async (file, args) => {
+      if (file === 'where.exe' && args[0] === 'pi') return { stdout: 'D:\\piharness\\pi\r\nD:\\piharness\\pi.cmd\r\n' };
+      if (file === 'D:\\piharness\\pi') throw Object.assign(new Error('not a valid Win32 application'), { code: 'EINVAL' });
+      if (file === 'powershell.exe') throw Object.assign(new Error('running scripts is disabled'), { code: 'HARNESS_PROBE_FAILED' });
+      throw new Error('unexpected probe');
+    },
+  });
+
+  const pi = (await detector.detect()).find((row) => row.harness === 'pi');
+
+  assert.equal(pi.available, false);
+  assert.match(pi.reason, /2 个候选命令均无法运行/);
+  assert.deepEqual(pi.diagnostics.candidates, ['D:\\piharness\\pi', 'D:\\piharness\\pi.cmd']);
+  assert.deepEqual(pi.diagnostics.attempts, [
+    { executablePath: 'D:\\piharness\\pi', error: 'EINVAL: not a valid Win32 application' },
+    { executablePath: 'D:\\piharness\\pi.cmd', error: 'HARNESS_PROBE_FAILED: running scripts is disabled' },
+  ]);
+});
+
+test('Windows probes an npm pi.cmd shim through the PowerShell relay', async () => {
+  const calls = [];
+  const detector = new HarnessDetector({
+    platform: 'win32',
+    windowsCommandWrapperPath: 'C:\\WeWork\\pi-command-wrapper.ps1',
+    run: async (file, args) => {
+      calls.push([file, args]);
+      if (file === 'where.exe' && args[0] === 'pi') return { stdout: 'C:\\Users\\worker\\AppData\\Roaming\\npm\\pi.cmd\r\n' };
+      if (file === 'powershell.exe') return { stdout: 'pi 0.84.3\r\n' };
+      throw new Error('missing');
+    },
+  });
+
+  const pi = (await detector.detect()).find((row) => row.harness === 'pi');
+
+  assert.equal(pi.available, true);
+  assert.equal(pi.executionReady, true);
+  assert.ok(calls.some(([file, args]) => file === 'powershell.exe' && args.includes('C:\\Users\\worker\\AppData\\Roaming\\npm\\pi.cmd')));
+});
+
+test('Windows skips an unusable extensionless npm shim and detects the following pi.cmd', async () => {
+  const detector = new HarnessDetector({
+    platform: 'win32',
+    windowsCommandWrapperPath: 'D:\\app\\pi-command-wrapper.ps1',
+    run: async (file, args) => {
+      if (file === 'where.exe' && args[0] === 'pi') return { stdout: 'D:\\piharness\\pi\r\nD:\\piharness\\pi.cmd\r\nD:\\piharness\\pi.ps1\r\n' };
+      if (file === 'D:\\piharness\\pi') throw Object.assign(new Error('not a Win32 application'), { code: 'UNKNOWN' });
+      if (file === 'powershell.exe' && args.includes('D:\\piharness\\pi.cmd')) return { stdout: 'pi 0.84.3\r\n' };
+      throw new Error('unsupported candidate');
+    },
+  });
+
+  const pi = (await detector.detect()).find((row) => row.harness === 'pi');
+
+  assert.equal(pi.available, true);
+  assert.equal(pi.executablePath, 'D:\\piharness\\pi.cmd');
+});
+
 test('reads the selected harness model from its own configuration', async () => {
   const detector = new HarnessDetector({
     platform: 'linux', home: '/home/test', env: {},

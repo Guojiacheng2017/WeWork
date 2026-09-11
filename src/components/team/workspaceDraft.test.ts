@@ -3,6 +3,16 @@ import * as workspaceDraft from './workspaceDraft';
 
 const { shouldResetWorkspaceDraft } = workspaceDraft;
 
+it('creates an SDH Session that follows the Harness-owned default model', () => {
+  const execution = (workspaceDraft as any).createDefaultSdhExecution('employee-execution-default');
+  expect(execution).toEqual(expect.objectContaining({
+    id: 'employee-execution-default',
+    adapter: 'smalldash',
+    model: { provider: 'smalldashharness', modelId: 'default' },
+  }));
+  expect(execution).not.toHaveProperty('modelCatalogId');
+});
+
 it('preserves a dirty workspace draft across unrelated hydration', () => {
   expect(shouldResetWorkspaceDraft({ previousTeamId: 'team', teamId: 'team', baseline: 'saved-a', persisted: 'saved-b', draft: 'local-draft' })).toBe(false);
 });

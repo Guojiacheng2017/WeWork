@@ -1,4 +1,4 @@
-import type { HarnessId } from './weworkHost';
+import type { HarnessId, HarnessInstallation } from './weworkHost';
 
 export const harnessNames: Record<HarnessId, string> = {
   pi: 'Pi',
@@ -13,3 +13,12 @@ export const harnessNeedsServiceUrl = (harness: HarnessId) => harness === 'small
 export const harnessSupportsProfiles = (harness: HarnessId) => harness === 'smalldashharness';
 export const harnessCanBeAllowed = (installation: { available: boolean; executionReady?: boolean }, desktopHostAvailable: boolean) =>
   desktopHostAvailable && installation.available && installation.executionReady === true;
+
+export const displayedHarnessInstallations = (installations: HarnessInstallation[]) => installations.some((item) => item.harness === 'smalldashharness')
+  ? installations
+  : [{
+      id: 'remote:smalldashharness', harness: 'smalldashharness' as const, kind: 'local-service' as const,
+      available: false, executionReady: false,
+      capabilities: { streaming: true, resumeSession: true, cancellation: true, workspace: true, tools: true },
+      configuration: { source: 'harness' as const },
+    }, ...installations];

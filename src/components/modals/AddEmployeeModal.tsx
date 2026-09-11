@@ -1,9 +1,11 @@
+import { randomEmployeeName } from '../../domain/employeeNames';
 import { Dialog, DialogFooter, Field, Button, Input, NativeSelect } from '../ui';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useWeWorkStore } from '../../state/weworkStore';
 import { ChevronDown, UserPlus } from 'lucide-react';
 import { weworkHost, type HarnessId, type HarnessInstallation, type HarnessModel } from '../../runtime/weworkHost';
-import { createExecutionForCatalogModel } from '../team/workspaceDraft';
+import { createDefaultSdhExecution, createExecutionForCatalogModel } from '../team/workspaceDraft';
+import { canSubmitEmployeeOnboarding, initialHarnessForOnboarding, initialModelRefForOnboarding } from './employeeOnboarding';
 
 const runtimeFor = (harness: HarnessId): 'Pi' | 'Claude Code' | 'DSH' | 'Workspace' => harness === 'pi' ? 'Pi' : harness === 'claude-code' ? 'Claude Code' : harness === 'smalldashharness' ? 'DSH' : 'Workspace';
 
@@ -11,8 +13,7 @@ export const AddEmployeeModal: React.FC = () => {
   const { isAddEmployeeOpen, setAddEmployeeOpen, addEmployee, selectedTeamId, teams } = useWeWorkStore();
   const currentTeam = teams.find((t) => t.id === selectedTeamId);
 
-  const defaultEmployeeNum = (currentTeam?.employees.length || 0) + 1;
-  const [displayName, setDisplayName] = useState(`Employee-0${defaultEmployeeNum}`);
+  const [displayName, setDisplayName] = useState(() => randomEmployeeName(currentTeam?.employees.map(employee => employee.displayName)));
   const [roleName, setRoleName] = useState('CV 算法开发与调优');
   const [runtime, setRuntime] = useState<'Pi' | 'Claude Code' | 'DSH' | 'Workspace'>('Pi');
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -29,29 +30,31 @@ export const AddEmployeeModal: React.FC = () => {
     if (!isAddEmployeeOpen) return;
     let cancelled = false;
     setLoading(true); setModels([]); setInstallations([]); setModelRef(''); setLoadError('');
-    setDisplayName(`Employee-${String(defaultEmployeeNum).padStart(2, '0')}`);
+    setDisplayName(randomEmployeeName(currentTeam?.employees.map(employee => employee.displayName)));
     void Promise.all([weworkHost.harnesses(), weworkHost.harnessPolicy(), weworkHost.harnessModels()]).then(([detected, policy, catalog]) => {
       if (cancelled) return;
       const ready = detected.filter((item) => item.executionReady && policy.allowedHarnesses.includes(item.harness));
       const verified = catalog.models.filter((item) => item.verified && ready.some((installation) => installation.harness === item.harness));
       setInstallations(ready); setModels(verified); setDefaults(catalog.defaults); setLoadError('');
-      const firstHarness = ready.find((item) => verified.some((model) => model.harness === item.harness))?.harness;
+      const firstHarness = initialHarnessForOnboarding(ready, verified);
       if (firstHarness) setHarness(firstHarness); else setLoadError(window.weworkHost ? '没有可用模型，请在设置中允许执行器并完成模型检查。' : '浏览器模式无法探测本机执行器。请在桌面版配置执行器与模型后办理入职。');
     }).catch((error) => { if (!cancelled) setLoadError(error instanceof Error ? error.message : String(error)); }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [isAddEmployeeOpen, selectedTeamId]);
 
   const harnessModels = useMemo(() => models.filter((model) => model.harness === harness), [models, harness]);
-  useEffect(() => { const selected = harnessModels.find((model) => model.id === defaults[harness]) ?? harnessModels[0]; setModelRef(selected?.id ?? ''); setRuntime(runtimeFor(harness)); }, [harness, harnessModels, defaults]);
+  const harnessReady = installations.some((installation) => installation.harness === harness);
+  const canSubmit = canSubmitEmployeeOnboarding({ saving, loading, displayName, roleName, harness, modelRef, harnessReady });
+  useEffect(() => { setModelRef(initialModelRefForOnboarding(harness, harnessModels, defaults)); setRuntime(runtimeFor(harness)); }, [harness, harnessModels, defaults]);
 
   if (!isAddEmployeeOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const model = harnessModels.find((item) => item.id === modelRef);
-    if (!displayName.trim() || !roleName.trim() || !model || saving) return;
+    if (!canSubmit || (harness !== 'smalldashharness' && !model)) return;
     setSaving(true); setLoadError('');
-    try { await addEmployee(selectedTeamId, displayName, roleName, runtime, createExecutionForCatalogModel(model)); }
+    try { await addEmployee(selectedTeamId, displayName, roleName, runtime, model ? createExecutionForCatalogModel(model) : createDefaultSdhExecution()); }
     catch (error) { setLoadError(error instanceof Error ? error.message : String(error)); }
     finally { setSaving(false); }
   };
@@ -68,13 +71,13 @@ export const AddEmployeeModal: React.FC = () => {
               required
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="例如：Employee-06 (压测专家)"
+              placeholder="例如：林知远"
               className="w-full px-3 py-2"
             />
           </Field>
 
-          <label className="block font-bold text-slate-700">Harness *<NativeSelect required aria-label="新助手 Harness" value={harness} onChange={(event) => setHarness(event.target.value as HarnessId)} className="mt-1.5 w-full px-3 py-2.5"><option value="" disabled>选择已允许的 Harness</option>{installations.filter((item) => models.some((model) => model.harness === item.harness)).map((item) => <option key={item.id} value={item.harness}>{item.harness === 'smalldashharness' ? 'smalldashharness（远程）' : item.harness}</option>)}</NativeSelect></label>
-          <label className="block font-bold text-slate-700">模型 *<NativeSelect required aria-label="新助手模型" value={modelRef} onChange={(event) => setModelRef(event.target.value)} className="mt-1.5 w-full px-3 py-2.5"><option value="">选择该 Harness 的可用模型</option>{harnessModels.map((model) => <option key={model.id} value={model.id}>{model.name} · {model.provider}/{model.modelId}{model.id === defaults[harness] ? '（默认）' : ''}</option>)}</NativeSelect><span className="mt-1 block text-[11px] font-normal text-slate-400">来自本机 Harness 的已验证模型目录，并直接绑定到新助手 Session。</span></label>
+          <label className="block font-bold text-slate-700">Harness *<NativeSelect required aria-label="新助手 Harness" value={harness} onChange={(event) => setHarness(event.target.value as HarnessId)} className="mt-1.5 w-full px-3 py-2.5"><option value="" disabled>选择已允许的 Harness</option>{installations.filter((item) => item.harness === 'smalldashharness' || models.some((model) => model.harness === item.harness)).map((item) => <option key={item.id} value={item.harness}>{item.harness === 'smalldashharness' ? 'smalldashharness（远程）' : item.harness}</option>)}</NativeSelect></label>
+          <label className="block font-bold text-slate-700">模型 {harness === 'smalldashharness' ? '' : '*'}<NativeSelect required={harness !== 'smalldashharness'} aria-label="新助手模型" value={modelRef} onChange={(event) => setModelRef(event.target.value)} className="mt-1.5 w-full px-3 py-2.5"><option value="">{harness === 'smalldashharness' ? '跟随 SDH 默认模型' : '选择该 Harness 的可用模型'}</option>{harnessModels.map((model) => <option key={model.id} value={model.id}>{model.name} · {model.provider}/{model.modelId}{model.id === defaults[harness] ? '（默认）' : ''}</option>)}</NativeSelect><span className="mt-1 block text-[11px] font-normal text-slate-400">{harness === 'smalldashharness' ? '默认由 SDH 管理模型；也可以选择 SDH 提供的模型目录项。' : '来自本机 Harness 的已验证模型目录，并直接绑定到新助手 Session。'}</span></label>
           {loading && <p role="status">正在检查可用执行器与模型…</p>}
           {loadError && <p role="alert" className="rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-700">{loadError}</p>}
 
@@ -111,7 +114,7 @@ export const AddEmployeeModal: React.FC = () => {
               取消
             </Button>
             <Button variant="primary"
-              type="submit" loading={saving} disabled={saving || loading || !modelRef || !displayName.trim() || !roleName.trim()}
+              type="submit" loading={saving} disabled={!canSubmit}
               className="px-4 py-1.5 transition-colors cursor-pointer"
             >
               {saving ? '正在办理入职…' : '确认入职'}

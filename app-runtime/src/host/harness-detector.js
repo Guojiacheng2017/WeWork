@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { scrubHostChildEnvironment } from './process.js';
+import { windowsCommandInvocation } from '../windows-command.js';
 
 const CAPABILITIES = Object.freeze({
   pi: { streaming: true, resumeSession: true, cancellation: true, workspace: true, tools: true },
@@ -26,6 +27,7 @@ const CONFIG_FILES = Object.freeze({
 });
 
 const firstString = (...values) => values.find((value) => typeof value === 'string' && value.trim())?.trim();
+const errorText = (error) => `${error?.code ? `${error.code}: ` : ''}${error instanceof Error ? error.message : String(error)}`;
 
 function parseConfiguration(harness, text, env) {
   if (harness === 'claude-code') {
@@ -63,9 +65,10 @@ function runProcess(file, args, { timeoutMs = 1500, environment = process.env } 
 }
 
 export class HarnessDetector {
-  constructor({ platform = process.platform, run = runProcess, readText = (path) => readFile(path, 'utf8'), home = homedir(), env = process.env, bundledSdh = async () => false } = {}) {
+  constructor({ platform = process.platform, run = runProcess, readText = (path) => readFile(path, 'utf8'), home = homedir(), env = process.env, bundledSdh = async () => false, windowsCommandWrapperPath } = {}) {
     this.platform = platform; this.run = run; this.readText = readText; this.home = home; this.env = env;
     this.bundledSdh = bundledSdh;
+    this.windowsCommandWrapperPath = windowsCommandWrapperPath;
   }
 
   async configuration(harness) {
@@ -77,17 +80,29 @@ export class HarnessDetector {
 
   async executable(spec) {
     const lookup = this.platform === 'win32' ? 'where.exe' : 'which';
+    const diagnostics = { lookupCommand: `${lookup} ${spec.command}`, path: this.env.PATH ?? this.env.Path ?? '', candidates: [], attempts: [] };
     try {
       const environment = scrubHostChildEnvironment(this.env);
-      const located = await this.run(lookup, [spec.command], { timeoutMs: 1000, environment });
-      const executablePath = located.stdout.split(/\r?\n/).map((line) => line.trim()).find(Boolean);
-      if (!executablePath) throw new Error('empty executable path');
-      const versionResult = await this.run(executablePath, ['--version'], { timeoutMs: 1500, environment });
-      const version = `${versionResult.stdout || versionResult.stderr}`.trim().split(/\r?\n/)[0] || undefined;
-      const adapted = spec.harness === 'pi';
-      return { id: `harness:${spec.harness}`, harness: spec.harness, kind: spec.kind, available: true, executionReady: adapted, weworkToolsReady: adapted, reason: adapted ? 'Verified through the WeWork Pi RPC adapter' : 'Installed; no verified WeWork execution adapter', executablePath, version, capabilities: adapted ? CAPABILITIES[spec.harness] : {streaming:false,resumeSession:false,cancellation:false,workspace:false,tools:false}, configuration: await this.configuration(spec.harness) };
-    } catch {
-      return { id: `harness:${spec.harness}`, harness: spec.harness, kind: spec.kind, available: false, executionReady:false, weworkToolsReady:false, capabilities: {streaming:false,resumeSession:false,cancellation:false,workspace:false,tools:false} };
+      let located;
+      try { located = await this.run(lookup, [spec.command], { timeoutMs: 1000, environment }); }
+      catch (error) {
+        return { id: `harness:${spec.harness}`, harness: spec.harness, kind: spec.kind, available: false, executionReady:false, weworkToolsReady:false, reason: `${diagnostics.lookupCommand} 失败：${errorText(error)}`, diagnostics, capabilities: {streaming:false,resumeSession:false,cancellation:false,workspace:false,tools:false} };
+      }
+      const candidates = located.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+      diagnostics.candidates = candidates;
+      if (!candidates.length) throw new Error('empty executable path');
+      for (const executablePath of candidates) try {
+        const invocation = this.platform === 'win32'
+          ? windowsCommandInvocation(executablePath, ['--version'], this.windowsCommandWrapperPath)
+          : { file: executablePath, args: ['--version'] };
+        const versionResult = await this.run(invocation.file, invocation.args, { timeoutMs: 1500, environment });
+        const version = `${versionResult.stdout || versionResult.stderr}`.trim().split(/\r?\n/)[0] || undefined;
+        const adapted = spec.harness === 'pi';
+        return { id: `harness:${spec.harness}`, harness: spec.harness, kind: spec.kind, available: true, executionReady: adapted, weworkToolsReady: adapted, reason: adapted ? 'Verified through the WeWork Pi RPC adapter' : 'Installed; no verified WeWork execution adapter', executablePath, version, capabilities: adapted ? CAPABILITIES[spec.harness] : {streaming:false,resumeSession:false,cancellation:false,workspace:false,tools:false}, configuration: await this.configuration(spec.harness) };
+      } catch (error) { diagnostics.attempts.push({ executablePath, error: errorText(error) }); }
+      throw new Error(`${candidates.length} 个候选命令均无法运行`);
+    } catch (error) {
+      return { id: `harness:${spec.harness}`, harness: spec.harness, kind: spec.kind, available: false, executionReady:false, weworkToolsReady:false, reason: error instanceof Error ? error.message : String(error), diagnostics, capabilities: {streaming:false,resumeSession:false,cancellation:false,workspace:false,tools:false} };
     }
   }
 
