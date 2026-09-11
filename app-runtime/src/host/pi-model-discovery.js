@@ -1,3 +1,4 @@
+import { readPiJsonLines } from '../pi-json-lines.js';
 import { spawn } from 'node:child_process';
 import { scrubHostChildEnvironment } from './process.js';
 
@@ -6,8 +7,8 @@ const rpcArgs = ['--mode', 'rpc', '--no-session', '--no-extensions', '--no-skill
 export function discoverPiModels(executablePath, { spawnProcess = spawn, timeoutMs = 10000, environment = process.env } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawnProcess(executablePath, rpcArgs, { shell: false, windowsHide: true, env: scrubHostChildEnvironment(environment), stdio: ['pipe', 'pipe', 'pipe'] });
-    const pending = new Map(); let buffer = ''; let stderr = ''; let closed = false;
-    const finish = (error, value) => { if (closed) return; closed = true; clearTimeout(timer); if (child.exitCode === null && !child.killed) child.kill('SIGTERM'); error ? reject(error) : resolve(value); };
+    const pending = new Map(); let closeLines; let stderr = ''; let closed = false;
+    const finish = (error, value) => { if (closed) return; closed = true; closeLines?.(); clearTimeout(timer); if (child.exitCode === null && !child.killed) child.kill('SIGTERM'); error ? reject(error) : resolve(value); };
     const timer = setTimeout(() => finish(Object.assign(new Error('Pi model discovery timed out'), { code: 'PI_MODEL_DISCOVERY_TIMEOUT' })), timeoutMs);
     const request = (id, type) => { pending.set(id, undefined); child.stdin.write(`${JSON.stringify({ id, type })}\n`); };
     const complete = () => {
@@ -26,7 +27,7 @@ export function discoverPiModels(executablePath, { spawnProcess = spawn, timeout
       const defaultModel = models.find((model) => model.isDefault);
       finish(null, { models, defaults: defaultModel ? { pi: defaultModel.id } : {} });
     };
-    child.stdout.on('data', (chunk) => { buffer += chunk.toString(); for (;;) { const newline = buffer.indexOf('\n'); if (newline < 0) break; const line = buffer.slice(0, newline).replace(/\r$/, ''); buffer = buffer.slice(newline + 1); if (!line) continue; try { const event = JSON.parse(line); if (event.type === 'response' && pending.has(event.id)) { if (!event.success) return finish(Object.assign(new Error(event.error ?? 'Pi RPC failed'), { code: 'PI_MODEL_DISCOVERY_FAILED' })); pending.set(event.id, event.data); complete(); } } catch (error) { finish(Object.assign(new Error(`Invalid Pi RPC output: ${error.message}`), { code: 'PI_MODEL_DISCOVERY_FAILED' })); } } });
+    closeLines = readPiJsonLines(child.stdout, event => { if (event.type === 'response' && pending.has(event.id)) { if (!event.success) return finish(Object.assign(new Error(event.error ?? 'Pi RPC failed'), { code: 'PI_MODEL_DISCOVERY_FAILED' })); pending.set(event.id, event.data); complete(); } }, error => finish(Object.assign(error, {code:'PI_MODEL_DISCOVERY_FAILED'})));
     child.stderr.on('data', (chunk) => { stderr = `${stderr}${chunk}`.slice(-8000); });
     child.once('error', finish); child.once('close', (code) => { if (!closed) finish(Object.assign(new Error(stderr.trim() || `Pi exited during model discovery (${code})`), { code: 'PI_MODEL_DISCOVERY_FAILED' })); });
     request('state', 'get_state'); request('models', 'get_available_models');

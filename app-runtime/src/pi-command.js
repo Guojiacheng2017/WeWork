@@ -1,3 +1,4 @@
+import { readPiJsonLines } from './pi-json-lines.js';
 import { spawn } from 'node:child_process';
 import { stat } from 'node:fs/promises';
 import { scrubHostChildEnvironment } from './host/process.js';
@@ -12,7 +13,8 @@ export async function executePiCommand(spec, command, options = {}) {
   const model = spec.runtimeProfile.model;
   if (model?.modelId && model.modelId !== 'default') args.push('--model', `${model.provider && model.provider !== 'pi' ? model.provider + '/' : ''}${model.modelId}`);
   const child = (options.spawnProcess ?? spawn)(options.executablePath ?? 'pi', args, {cwd:spec.workspace.rootPath,env:scrubHostChildEnvironment(process.env),shell:false,stdio:['pipe','pipe','pipe']});
-  let buffer = '', stderr = '';
+  let stderr = '';
+  let closeLines;
   try {
     return await new Promise((resolve,reject) => {
       const timer = setTimeout(()=>reject(new Error('Pi 原生命令执行超时，请检查执行器状态')), options.timeoutMs ?? 120000);
@@ -20,18 +22,11 @@ export async function executePiCommand(spec, command, options = {}) {
       child.on('error',error=>done(error)); child.stdin.on('error',error=>done(error));
       child.stderr.on('data',chunk=>{stderr=(stderr+chunk.toString()).slice(-2000)});
       child.on('close',()=>done(new Error(stderr || 'Pi 命令进程已关闭')));
-      child.stdout.on('data',chunk=>{
-        buffer += chunk.toString();
-        for (;;) {
-          const newline = buffer.indexOf('\n'); if (newline < 0) break;
-          const line=buffer.slice(0,newline); buffer=buffer.slice(newline+1);
-          try { const event=JSON.parse(line); if(event.type==='response' && event.id==='wework-native-command') done(event.success ? null : new Error(event.error || 'Pi 命令失败'),event.data); }
-          catch { done(new Error('Pi 返回了无效的 RPC 数据')); }
-        }
-      });
+      closeLines = readPiJsonLines(child.stdout, event => { if(event.type==='response' && event.id==='wework-native-command') done(event.success ? null : new Error(event.error || 'Pi 命令失败'),event.data); }, done);
       child.stdin.write(JSON.stringify({id:'wework-native-command',type:types[command]})+'\n');
     });
   } finally {
+    closeLines?.();
     child.stdin.end();
     if (child.exitCode === null) await new Promise(resolve => {
       const timer = setTimeout(() => child.kill('SIGKILL'), 2000); timer.unref?.();

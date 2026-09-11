@@ -1,3 +1,4 @@
+import { readPiJsonLines } from './pi-json-lines.js';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
@@ -7,6 +8,7 @@ import { HostError } from './host/errors.js';
 import { scrubHostChildEnvironment } from './host/process.js';
 import { buildWorkPrompt } from './runtime.js';
 import { loadEmployeeSkills } from './skill-loader.js';
+import { windowsCommandInvocation } from './windows-command.js';
 
 const respond = (res, status, value) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(value)); };
 
@@ -69,8 +71,11 @@ export async function executePiRun(spec, options = {}) {
   if (selectedModel && selectedModel !== 'default') args.push('--model', spec.runtimeProfile.model.provider && spec.runtimeProfile.model.provider !== 'pi' ? `${spec.runtimeProfile.model.provider}/${selectedModel}` : selectedModel);
   if (spec.runtimeProfile.thinkingLevel && spec.runtimeProfile.thinkingLevel !== 'off') args.push('--thinking', spec.runtimeProfile.thinkingLevel);
   const env = scrubHostChildEnvironment({ ...process.env, ...options.env, WEWORK_PI_TOOL_URL: bridge.url, WEWORK_PI_TOOL_TOKEN: bridge.token, WEWORK_PI_TOOL_DEFINITIONS: Buffer.from(JSON.stringify(bridge.definitions)).toString('base64') });
-  const child = (options.spawnProcess ?? spawnRpc)(executable, args, { cwd: spec.workspace?.rootPath ?? process.cwd(), env });
-  let buffer = ''; let stderr = ''; let settled = false; let id = 0; const pending = new Map(); const completion = Promise.withResolvers();
+  const invocation = (options.platform ?? process.platform) === 'win32'
+    ? windowsCommandInvocation(executable, args, options.windowsCommandWrapperPath)
+    : { file: executable, args };
+  const child = (options.spawnProcess ?? spawnRpc)(invocation.file, invocation.args, { cwd: spec.workspace?.rootPath ?? process.cwd(), env });
+  let stderr = ''; let settled = false; let id = 0; const pending = new Map(); const completion = Promise.withResolvers();
   // Cancellation may close the child before prompt acknowledgement; attach eagerly.
   completion.promise.catch(() => {});
   let processFailure;
@@ -90,7 +95,7 @@ export async function executePiRun(spec, options = {}) {
     if (event.type === 'tool_execution_end' && String(event.toolName ?? '').startsWith('wework_')) options.emit?.({ type: 'wework.updated' });
     if (event.type === 'agent_settled' && !settled) { settled = true; completion.resolve(); }
   };
-  child.stdout.on('data', (chunk) => { buffer += chunk.toString(); for (;;) { const newline = buffer.indexOf('\n'); if (newline < 0) break; const line = buffer.slice(0, newline).replace(/\r$/, ''); buffer = buffer.slice(newline + 1); if (line) try { handle(JSON.parse(line)); } catch (error) { fail(new Error(`Invalid Pi RPC output: ${error.message}`)); } } });
+  const closeLines = readPiJsonLines(child.stdout, handle, fail);
   child.stderr.on('data', (chunk) => { stderr = `${stderr}${chunk}`.slice(-16000); }); child.stdin.on('error', fail); child.once('error', fail); child.once('close', (code) => { if (!settled || pending.size) fail(new Error(stderr.trim() || `Pi 进程已退出（${code}），本次消息未完成，请重试。`)); });
   const abort = () => { if (child.exitCode === null) { child.stdin.write(`${JSON.stringify({ type: 'abort' })}\n`); setTimeout(() => { if (child.exitCode === null) child.kill('SIGTERM'); }, 2000).unref(); } };
   options.signal?.addEventListener('abort', abort, { once: true });
@@ -103,6 +108,7 @@ export async function executePiRun(spec, options = {}) {
     child.stdin.end(); await new Promise((resolve) => child.exitCode !== null ? resolve() : child.once('close', resolve));
     return { nativeSessionId, messages: transcript.messages ?? [], finalText: text.text ?? '', usage: piUsage(stats) };
   } finally {
+    closeLines();
     options.registerControls?.(null);
     options.signal?.removeEventListener('abort', abort); for (const request of pending.values()) request.reject(new Error('Pi RPC closed')); pending.clear();
     if (child.exitCode === null && !child.killed) child.kill('SIGTERM'); await bridge.close();

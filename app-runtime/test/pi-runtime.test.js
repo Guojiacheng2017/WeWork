@@ -44,6 +44,27 @@ test('employee may request a Pi-discovered model without WeWork connection setti
   assert.equal(captured.includes('--api-key'), false);
 });
 
+test('Windows Pi RPC starts an npm cmd shim through the PowerShell relay', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'wework-pi-windows-'));
+  const executablePath = join(root, 'pi.cmd');
+  const wrapperPath = join(root, 'pi-command-wrapper.ps1');
+  await writeFile(executablePath, '@echo off');
+  await writeFile(wrapperPath, '');
+  t.after(() => import('node:fs/promises').then(({ rm }) => rm(root, { recursive: true, force: true })));
+  let invocation;
+  const rpc = fakeRpc();
+
+  await executePiRun(spec(), {
+    platform: 'win32', executablePath, extensionPath: '/tmp/pi-wework-extension.mjs', windowsCommandWrapperPath: wrapperPath,
+    spawnProcess: (file, args, options) => { invocation = { file, args }; return rpc(file, args, options); },
+  });
+
+  assert.equal(invocation.file, 'powershell.exe');
+  assert.deepEqual(invocation.args.slice(0, 8), ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', wrapperPath, executablePath]);
+  assert.ok(invocation.args.includes('--mode'));
+  assert.ok(invocation.args.includes('rpc'));
+});
+
 test('Pi receives global, team and employee WEWORK.md layers as system instructions', async () => {
   let captured;
   const configured = { ...spec(), weworkPrompts: [{ scope: 'global', content: 'Global policy' }, { scope: 'team', content: 'Team policy' }, { scope: 'employee', content: 'Employee persona' }] };
