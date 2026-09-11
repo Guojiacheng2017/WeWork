@@ -54,8 +54,9 @@ npm run package:win
 
 Extract the ZIP from `desktop/dist/` and run `WeWork.exe` with all
 extracted files alongside it. This is unsigned; managed-device policy may block
-execution. Native directory selection and credential storage currently use
-macOS implementations and are not yet supported on Windows.
+execution. Credentials are encrypted with Windows DPAPI for the current user;
+copying the credential files to another account or device will not make them
+decryptable there.
 
 The optional collaboration server keeps its Python environment isolated:
 
