@@ -1,3 +1,4 @@
+import { ProjectPluginLayout } from './components/project/ProjectPluginLayout';
 import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { useWeWorkStore } from './state/weworkStore';
 import { TeamSidebar } from './components/layout/TeamSidebar';
@@ -17,6 +18,7 @@ import { RuntimeMonitor } from './components/debug/RuntimeMonitor';
 const ProjectManagementView = lazy(() => import('./components/project/ProjectManagementView'));
 
 export const App: React.FC = () => {
+  const [activePlugin, setActivePlugin] = useState<{ id: string; name: string; description: string } | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem('wework.sidebarCollapsed') === 'true' || window.innerWidth < 768);
   const [pendingPanelWidth, setPendingPanelWidth] = useState(() => {
     const stored = Number(window.localStorage.getItem('wework.pendingPanelWidth'));
@@ -106,7 +108,7 @@ export const App: React.FC = () => {
       {/* 2. Main Work & Stage Center */}
       <main className="flex-1 flex flex-col h-full min-w-0 relative">
         {/* Top Header */}
-        <StageHeader />
+        <StageHeader onPluginSelect={setActivePlugin} />
         {topology === 'workflowDag' && <nav aria-label="工作流页面" className="flex gap-2 border-b border-slate-200 bg-white px-4 py-2">{(['dag', 'lab'] as const).map(page => <button key={page} type="button" aria-pressed={dagPage === page} onClick={() => setDagPage(page)} className={`rounded-lg px-3 py-2 text-xs ${dagPage === page ? 'bg-sky-50 text-sky-700' : 'text-slate-500'}`}>{page === 'dag' ? '工作 DAG' : '任务与资源 · 实验'}</button>)}</nav>}
 
         {/* Central Pure 2D Stage */}
@@ -114,8 +116,10 @@ export const App: React.FC = () => {
           <div className="workspace-view min-w-0">
             {!currentTeam ? (
               <section className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center"><h1 className="text-xl font-bold text-slate-900">创建你的第一个协作团队</h1><p className="max-w-md text-sm leading-6 text-slate-500">先创建团队，再配置执行器并添加助手，即可分派任务和开展协作。</p><button type="button" onClick={() => setCreateTeamOpen(true)} className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white">创建团队</button></section>
+            ) : topology === 'plugin' ? (
+              <div className="flex h-full"><nav aria-label="插件导航" className="w-48 shrink-0 border-r border-slate-200 p-4"><h2 className="mb-4 font-semibold">{activePlugin?.name ?? '插件'}</h2><span className="block rounded-lg bg-sky-50 px-3 py-2 text-sm text-sky-700">概览</span></nav><section className="min-w-0 flex-1 p-6"><h1 className="text-xl font-semibold">{activePlugin?.name ?? '选择插件'}</h1><p className="mt-3 text-sm text-slate-500">{activePlugin?.description}</p><p className="mt-6 text-sm text-slate-500">此插件暂未提供可视化工作页面。</p></section></div>
             ) : topology === 'issues' || topology === 'board' || topology === 'gantt' ? (
-              <Suspense fallback={<div className="grid h-full place-items-center text-sm text-slate-400">正在加载项目模块…</div>}><ProjectManagementView team={currentTeam!} view={topology} /></Suspense>
+              <ProjectPluginLayout team={currentTeam} view={topology}><Suspense fallback={<div className="grid h-full place-items-center text-sm text-slate-400">正在加载项目模块…</div>}><ProjectManagementView team={currentTeam} view={topology} /></Suspense></ProjectPluginLayout>
             ) : topology === 'roundTable' ? (
               <div data-resizing={Boolean(roundResize)} className="wework-round-layout relative flex h-full gap-2 p-4" onPointerMove={(event) => { if (roundResize) setPendingPanelWidth(Math.max(300, Math.min(520, roundResize.startWidth + roundResize.startX - event.clientX))); }} onPointerUp={() => setRoundResize(null)} onPointerCancel={() => setRoundResize(null)}>
               <section className="wework-round-stage min-w-0 flex-1 overflow-hidden" aria-label="圆桌协作区">

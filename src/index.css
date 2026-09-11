@@ -381,3 +381,68 @@ html.wework-desktop .wework-window-controls button:hover {
 .employee-workbench .workbench-identity[data-ui="button"] { background:transparent; border:0; box-shadow:none; border-radius:999px; padding:12px 18px; transition:background-color 140ms ease; }
 .employee-workbench .workbench-identity[data-ui="button"]:hover { background:#f1f5f9; border:0; box-shadow:none; }
 @media(prefers-reduced-motion:reduce) { .employee-workbench .workbench-identity[data-ui="button"] { transition:none; } }
+.stage-view-capsule {
+  position: relative;
+  display: grid;
+  padding: 4px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  isolation: isolate;
+}
+.stage-view-capsule-indicator {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  z-index: -1;
+  border-radius: 999px;
+  background: white;
+  box-shadow: 0 1px 4px rgb(15 23 42 / 10%);
+  transition: transform 220ms cubic-bezier(.2,.8,.2,1), opacity 140ms ease;
+  pointer-events: none;
+}
+.stage-view-capsule > button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 140ms ease;
+}
+.stage-view-capsule > button:hover,
+.stage-view-capsule > button[aria-current="page"] { color: #0f172a; }
+.stage-view-capsule > button:focus-visible { outline: 2px solid #38bdf8; outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  .stage-view-capsule-indicator, .stage-view-capsule > button { transition: none; }
+}
+.stage-view-capsule > .stage-plugin-select[data-ui="button"] {
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+  min-width: 0;
+  height: 34px;
+}
+.stage-view-capsule {
+  display: flex;
+  width: max-content;
+  max-width: 420px;
+}
+.stage-view-capsule > button { flex: 0 0 auto; }
+.stage-view-capsule > .stage-plugin-select[data-ui="button"] {
+  flex: 0 1 auto;
+  width: auto;
+  max-width: 220px;
+}
+.stage-view-capsule .ww-select-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.stage-view-capsule-indicator { transition: transform 220ms cubic-bezier(.2,.8,.2,1), width 220ms cubic-bezier(.2,.8,.2,1), opacity 140ms ease; }
+@media (prefers-reduced-motion: reduce) { .stage-view-capsule-indicator { transition: none; } }

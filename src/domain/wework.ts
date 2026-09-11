@@ -382,4 +382,4 @@ export type WeWorkTeam = {
   collaborationDatabase?: CollaborationDatabase;
 };
 
-export type TeamView = 'roundTable' | 'workflowDag' | 'teamManagement' | 'issues' | 'board' | 'gantt';
+export type TeamView = 'plugin' | 'roundTable' | 'workflowDag' | 'teamManagement' | 'issues' | 'board' | 'gantt';

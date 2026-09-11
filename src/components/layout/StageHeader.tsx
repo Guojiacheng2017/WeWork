@@ -1,10 +1,31 @@
-import { useLayoutEffect, useRef } from 'react';
+import { weworkHost, type PluginManifest } from '../../runtime/weworkHost';
+import { PLANE_PLUGIN_ID } from '../../domain/collaboration';
+import { useEffect, useState, useLayoutEffect, useRef } from 'react';
 import { useWeWorkStore } from '../../state/weworkStore';
-import { CalendarRange, CircleDot, Columns3, GitFork, ListChecks, Users } from 'lucide-react';
-import { Badge, Button, ViewSwitcher } from '../ui';
-import type { TeamView } from '../../domain/wework';
+import { CircleDot, GitFork, Layers, Users } from 'lucide-react';
+import { Badge, Button, Select } from '../ui';
+import { projectPluginName, projectPluginViews } from '../project/projectNavigation';
 
-export function StageHeader() {
+export function StageHeader({ onPluginSelect }: { onPluginSelect: (plugin: { id: string; name: string; description: string } | null) => void }) {
+  const [catalog, setCatalog] = useState<PluginManifest[]>([]);
+  const [selection, setSelection] = useState<Record<string, string>>({});
+  useEffect(() => { void weworkHost.plugins().then(setCatalog).catch(() => {}); }, []);
+  const capsuleRef = useRef<HTMLElement>(null);
+  const [indicator, setIndicator] = useState({ left: 4, width: 0, visible: false });
+  useLayoutEffect(() => {
+    const capsule = capsuleRef.current;
+    if (!capsule) return;
+    const sync = () => {
+      const active = capsule.querySelector<HTMLButtonElement>('button[aria-current="page"]');
+      if (active) setIndicator(previous => previous.left === active.offsetLeft && previous.width === active.offsetWidth && previous.visible ? previous : { left: active.offsetLeft, width: active.offsetWidth, visible: true });
+      else setIndicator(previous => previous.visible ? { ...previous, visible: false } : previous);
+    };
+    sync();
+    const observer = new ResizeObserver(sync);
+    observer.observe(capsule);
+    capsule.querySelectorAll('button').forEach(button => observer.observe(button));
+    return () => observer.disconnect();
+  });
   const headerRef = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
     const header = headerRef.current;
@@ -20,12 +41,26 @@ export function StageHeader() {
   if (!currentTeam) return <header ref={headerRef} className="wework-stage-header shrink-0 border-b border-slate-200 bg-white" />;
   const project = currentTeam.modules?.projectManagement;
   const capabilities = new Set(project?.enabled ? project.capabilities : []);
-  const projectViews = [
-    { capability: 'issues', value: 'issues', label: '工作项', icon: <ListChecks size={14} /> },
-    { capability: 'board', value: 'board', label: '看板', icon: <Columns3 size={14} /> },
-    { capability: 'gantt', value: 'gantt', label: '甘特图', icon: <CalendarRange size={14} /> },
-  ] as const;
-  const availableProjectViews = projectViews.filter(view => capabilities.has(view.capability));
+  const availableProjectViews = projectPluginViews.filter(view => capabilities.has(view.value));
+  const enabledPlugins = Object.entries(currentTeam.modules?.plugins ?? {}).filter(([id, plugin]) => plugin.enabled && catalog.find(item => item.name === id)?.enabled !== false).map(([id]) => {
+    const manifest = catalog.find(item => item.name === id);
+    return { value: id, label: manifest?.interface?.displayName || (id === PLANE_PLUGIN_ID ? 'Plane' : id), description: manifest?.description || '' };
+  });
+  if (!Object.keys(currentTeam.modules?.plugins ?? {}).length && availableProjectViews.length && catalog.find(item => item.name === PLANE_PLUGIN_ID)?.enabled !== false) enabledPlugins.push({ value: PLANE_PLUGIN_ID, label: projectPluginName(currentTeam), description: '' });
+  const selectedPlugin = enabledPlugins.find(item => item.value === selection[currentTeam.id]) ?? enabledPlugins[0];
+  const pluginSelected = topology === 'plugin' || availableProjectViews.some(view => view.value === topology);
+  const activatePlugin = (id: string) => {
+          setSelection(previous => ({ ...previous, [currentTeam.id]: id }));
+          const plugin = enabledPlugins.find(item => item.value === id)!;
+          if (id === PLANE_PLUGIN_ID && availableProjectViews.length) {
+            onPluginSelect(null);
+            setTopology(availableProjectViews.some(item => item.value === topology) ? topology : availableProjectViews[0].value);
+          } else {
+            onPluginSelect({ id, name: plugin.label, description: plugin.description });
+            setTopology('plugin');
+          }
+
+  };
   return <header ref={headerRef} className="wework-stage-header h-14 bg-white/90 backdrop-blur-md border-b border-slate-200/80 px-6 flex items-center justify-between z-10 shrink-0 select-none">
     <div className="stage-team-summary flex min-w-0 items-center gap-3">
       <div className="flex h-9 min-w-0 items-center gap-2 rounded-xl bg-slate-50 px-3 ring-1 ring-inset ring-slate-100">
@@ -35,15 +70,18 @@ export function StageHeader() {
       {currentTeam.description.trim() && <><div className="h-4 w-px bg-slate-200" /><p className="hidden max-w-md truncate text-xs text-slate-400 lg:block">{currentTeam.description}</p></>}
     </div>
     <div className="flex shrink-0 items-center gap-3">
-      <Button type="button" variant={topology === 'roundTable' ? 'secondary' : 'ghost'}
-        aria-current={topology === 'roundTable' ? 'page' : undefined} onClick={() => setTopology('roundTable')}>
-        <CircleDot size={14} /><span>圆桌</span>
-      </Button>
-      <Button type="button" variant={topology === 'workflowDag' ? 'secondary' : 'ghost'}
-        aria-current={topology === 'workflowDag' ? 'page' : undefined} onClick={() => setTopology('workflowDag')}>
-        <GitFork size={14} /><span>工作流</span>
-      </Button>
-      {availableProjectViews.length > 0 && <><span className="h-5 w-px bg-slate-200" /><ViewSwitcher<TeamView> label="项目管理插件" value={topology} onChange={setTopology} items={availableProjectViews} /></>}
+      <nav ref={capsuleRef} aria-label="工作视图" className="stage-view-capsule">
+        <span aria-hidden="true" className="stage-view-capsule-indicator" style={{ width: indicator.width, transform: `translateX(${indicator.left - 4}px)`, opacity: indicator.visible ? 1 : 0 }} />
+        <button type="button" aria-current={topology === 'roundTable' ? 'page' : undefined} onClick={() => setTopology('roundTable')}><CircleDot size={14} /><span>圆桌</span></button>
+        <button type="button" aria-current={topology === 'workflowDag' ? 'page' : undefined} onClick={() => setTopology('workflowDag')}><GitFork size={14} /><span>工作流</span></button>
+        {enabledPlugins.length > 0 && <Select className="stage-plugin-select" label="选择团队插件" value={selectedPlugin.value} options={enabledPlugins.map(item => ({ ...item, icon: <Layers size={14} /> }))} aria-current={pluginSelected ? 'page' : undefined} onClick={event => {
+          if (!pluginSelected) {
+            event.preventDefault();
+            activatePlugin(selectedPlugin.value);
+          }
+        }} onChange={activatePlugin}  />}
+
+      </nav>
       <span className="h-5 w-px bg-slate-200" />
       <Button type="button" variant={topology === 'teamManagement' ? 'secondary' : 'ghost'}
         aria-current={topology === 'teamManagement' ? 'page' : undefined} onClick={() => setTopology('teamManagement')}>
