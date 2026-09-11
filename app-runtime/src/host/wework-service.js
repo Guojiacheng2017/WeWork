@@ -1,3 +1,4 @@
+import { employeeSessions } from '../../../src/domain/workbenchSessions.ts';
 import { taskInputSignature } from '../wework-tools.js';
 import { mkdirSync, readFileSync, writeFileSync, renameSync, openSync, fsyncSync, closeSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -55,10 +56,10 @@ export class FileWeWorkStorage {
 }
 
 const uiMethods = new Set([
-  'snapshot', 'listRuntimeProfiles', 'createRuntimeProfile', 'bootstrap', 'importLocalState',
+  'ensureConversation', 'snapshot', 'listRuntimeProfiles', 'createRuntimeProfile', 'bootstrap', 'importLocalState',
   'createTeam', 'archiveTeam', 'restoreTeam', 'deleteTeam', 'updateTeamWorkspace', 'addEmployee', 'removeEmployee', 'updateEmployee', 'resetEmployeeContext', 'setLead',
   'createWork', 'assignWork', 'updateWork', 'cancelWork', 'completeCurrent', 'returnCurrent',
-  'acknowledgeEmployeeError', 'getWorkflow', 'saveWorkflow', 'sendMessage', 'sendAssistantMessage', 'sendTeamMessage',
+  'acknowledgeEmployeeError', 'getWorkflow', 'saveWorkflow', 'createWorkflow', 'selectWorkflow', 'listWorkflowReferences', 'configureWorkType', 'startWorkflow', 'sendMessage', 'sendAssistantMessage', 'sendTeamMessage',
   'getWorkContext', 'readTaskField', 'readWorkDocument', 'saveWorkDocument', 'reportProgress', 'submitDeliverable',
   'reviewDeliverable', 'getWorkRecords', 'postGroupMessage', 'retryGroupDelivery', 'cancelGroupDelivery', 'requestHandoff', 'decideHandoff', 'getGroupContext', 'readGroupMessage',
   'replaceCollaborationDatabase', 'configureTeamModules', 'createCollaborationWorkItem', 'updateCollaborationWorkItem', 'deleteCollaborationWorkItem', 'deleteCollaborationDatabase',
@@ -90,9 +91,70 @@ export class WeWorkService {
         let run; try {run=await this.coordinator.runtime.get(activity.runId);}catch(error){if(!['ENOENT','RUN_NOT_FOUND'].includes(error.code))throw error;}
         const failed=!run||!['succeeded','cancelled'].includes(run.status);
         await this.api.setEmployeeActivity(employee.id,failed?'error':employee.currentWorkItem?'waiting':'idle',failed?(run?.error??'执行已中断，请检查后重试'):employee.currentWorkItem?'等待交付审核':'当前没有执行中的任务');
+        for (const session of employeeSessions(employee)) if (session.activity?.state === 'working' && session.activity.runId === activity.runId) {
+          await this.api.setSessionActivity(employee.id,session.id,{state:failed?'error':run.status==='cancelled'?'idle':'waiting',detail:failed?(run?.error ?? '执行已中断'):run.status==='cancelled'?'执行已停止':'执行完成'});
+        }
         changed=true;
       }
       return changed?this.api.snapshot(...args):snapshot;
+    }
+    if (method === 'sendWorkbenchTab' || method === 'stopWorkbenchTab') {
+      const sending = method === 'sendWorkbenchTab';
+      if (!Array.isArray(args) || args.length !== (sending ? 3 : 2) || !args.every(value => typeof value === 'string') || !this.coordinator) throw new Error('无效的会话操作');
+      const [employeeId, tabId, text] = args;
+      if (sending && (!text.trim() || text.length > 100000)) throw new Error('消息不能为空或过长');
+      const session = await this.api.ensureConversation(employeeId, tabId);
+      const state = await this.api.snapshot();
+      const team = state.teams.find(team => team.employees.some(employee => employee.id === employeeId));
+      const employee = team.employees.find(employee => employee.id === employeeId);
+      const activeEntry = () => [...this.coordinator.runtime.active.entries()].find(([, run]) => run.employeeId === employeeId);
+      if (!sending) return this.coordinator.withEmployees([employeeId], async () => {
+        const active = activeEntry();
+        if (!active || active[1].displaySessionId !== session.id) return {stopped:false};
+        await this.coordinator.stopEmployee(employeeId);
+        await this.api.setSessionActivity(employeeId, session.id, {state:'idle', detail:'执行已停止'});
+        await this.api.setEmployeeActivity(employeeId, 'idle', '执行已停止');
+        this.coordinator.runtime.journal?.publish({type:'wework.updated'});
+        return {stopped:true};
+      });
+      const active = activeEntry();
+      if (active && active[1].displaySessionId !== session.id) throw new Error('助手正在另一个 Tab 执行；请等待，或切到对应 Tab 停止。');
+      if (tabId === 'group') {
+        if (active) return this.call('steerGroupDelivery', [team.id, active[1].deliveryId, text]);
+        await this.api.postGroupMessage(team.id, {text, recipientId:employeeId, requestId:randomUUID()});
+        void this.coordinator.drain().catch(() => {});
+        return {queued:true};
+      }
+      if (tabId !== 'private' && (employee.currentWorkItem?.id !== tabId || employee.currentWorkItem.cancelledAt)) throw new Error('这项工作当前不可执行；排队工作需等待分配，已结束工作仅供查看。');
+      if (active) {
+        const result = await this.coordinator.runtime.steerEmployee(employeeId, text, {sessionId:session.id});
+        if (result.accepted) { await this.api.sendMessage(employeeId, text, tabId); return {steered:true}; }
+      }
+      // Admission and session routing are checked again by startRun.
+      await this.api.sendMessage(employeeId, text, tabId);
+      await this.startRun({id:`run-${randomUUID()}`,employeeId,workId:tabId === 'private' ? `chat-${randomUUID()}` : tabId,...(tabId === 'private' ? {work:{goal:text}} : {prompt:text})}, this.coordinator.runtime);
+      return {steered:false};
+    }
+    if (method === 'steerGroupDelivery') {
+      if (!Array.isArray(args) || args.length !== 3 || !args.every(value => typeof value === 'string') || !this.coordinator) throw new Error('无效的群聊补充请求');
+      const [teamId, deliveryId, message] = args;
+      const team = (await this.api.snapshot()).teams.find(team => team.id === teamId);
+      const delivery = team?.collaborationDeliveries?.find(delivery => delivery.id === deliveryId);
+      if (!delivery || delivery.status !== 'running') throw new Error('这次回复已不在执行中，请发送新消息');
+      const result = await this.coordinator.runtime.steerEmployee(delivery.employeeId, message, {deliveryId});
+      if (!result.accepted) throw new Error('这次回复已结束，请发送新消息');
+      await this.api.recordGroupSteering(teamId, deliveryId, message);
+      this.coordinator.runtime.journal?.publish({type:'wework.updated',runId:result.runId});
+      return result;
+    }
+    if (method === 'stopEmployee') {
+      if (!Array.isArray(args) || args.length !== 1 || typeof args[0] !== 'string' || !this.coordinator) throw new Error('停止执行需要有效助手和桌面执行器');
+      return this.coordinator.withEmployees([args[0]], async () => {
+        await this.coordinator.stopEmployee(args[0]);
+        await this.api.setEmployeeActivity(args[0], 'idle', '执行已停止');
+        this.coordinator.runtime.journal?.publish({type:'wework.updated'});
+        return {stopped:true};
+      });
     }
     if (method === 'nativeHarnessCommand') {
       if (!Array.isArray(args) || args.length !== 2 || !['pi:compact','pi:status'].includes(args[1])) throw new Error('不支持的原生命令');
@@ -182,9 +244,10 @@ export class WeWorkService {
     const start = async () => {
       const prepared = await this.prepare(spec);
       await this.api.setEmployeeActivity(employeeId,'working',prepared.wework.group ? '正在处理群聊消息' : prepared.wework.chat ? '正在处理对话消息' : prepared.work.title,prepared.id);
+      await this.api.setSessionActivity(employeeId, prepared.wework.displaySessionId, {state:'working', detail:prepared.work.title, runId:prepared.id});
       runtime.journal?.publish({type:'wework.updated'});
       try { return await runtime.start(prepared); }
-      catch(error) { await this.api.setEmployeeActivity(employeeId,'error',error.message ?? '启动执行失败');runtime.journal?.publish({type:'wework.updated'});throw error; }
+      catch(error) { await this.api.setSessionActivity(employeeId,prepared.wework.displaySessionId,{state:'error',detail:error.message ?? '启动执行失败'}); await this.api.setEmployeeActivity(employeeId,'error',error.message ?? '启动执行失败');runtime.journal?.publish({type:'wework.updated'});throw error; }
     };
     return this.coordinator ? this.coordinator.withAdmission(employeeId, start) : start();
   }
@@ -231,6 +294,7 @@ export class WeWorkService {
     const chat = typeof spec.workId === 'string' && spec.workId.startsWith('chat-');
     const work = chat ? { id: spec.workId, title: 'Workbench conversation', goal: spec.work?.goal } : employee.currentWorkItem;
     if (!work || work.id !== spec.workId || typeof work.goal !== 'string') throw new Error('work is not assigned to this employee');
+    const displaySession = await this.api.ensureConversation(employee.id, chat ? 'private' : work.id);
     const legacyProfileId = work.runtimeProfileId ?? employee.defaultRuntimeProfileId ?? team.defaultRuntimeProfileId;
     const profile = employee.activeSession.execution?.enabled !== false
       ? employee.activeSession.execution
@@ -245,8 +309,8 @@ export class WeWorkService {
       followUp: typeof spec.prompt === 'string' ? spec.prompt.slice(0, 10000) : undefined,
       work: { id: work.id, title: work.title, goal: work.goal, constraints: work.constraints },
       // A task has its own execution history; chat reset also invalidates its checkpoint.
-      session: { id: `${employee.activeSession.id}-${chat ? 'chat' : work.id}-${profile.id}`, messages: [] },
-wework: { teamId: team.id, weworkSessionId: team.weworkSessionId ?? team.id, chat, context, inputSignature: chat ? null : taskInputSignature(work), modules: structuredClone(team.modules), isLead: employee.isLead === true, permissionMode: employee.activeSession.permissionMode ?? 'auto' },
+      session: { id: `${displaySession.id}${chat ? '-chat' : ''}-${profile.id}`, messages: [] },
+wework: { displaySessionId: displaySession.id, teamId: team.id, weworkSessionId: team.weworkSessionId ?? team.id, chat, context, inputSignature: chat ? null : taskInputSignature(work), modules: structuredClone(team.modules), isLead: employee.isLead === true, isWorkflowLead: team.workflow?.leadEmployeeId === employee.id, permissionMode: employee.activeSession.permissionMode ?? 'auto' },
     };
   }
   async prepareGroup(spec, state, deliveryId) {
@@ -255,6 +319,7 @@ wework: { teamId: team.id, weworkSessionId: team.weworkSessionId ?? team.id, cha
     if (!delivery || delivery.status !== 'running' || delivery.runId !== spec.id) throw new Error('group delivery is not reserved for this run');
     const employee = team.employees.find((b) => b.id === delivery.employeeId);
     if (!employee || this.coordinator?.transitioning.has(employee.id)) throw new Error('group recipient unavailable');
+    const displaySession = await this.api.ensureConversation(employee.id, 'group');
     const legacyProfileId = employee.defaultRuntimeProfileId ?? team.defaultRuntimeProfileId;
     const profile = employee.activeSession.execution?.enabled !== false
       ? employee.activeSession.execution
@@ -268,8 +333,8 @@ wework: { teamId: team.id, weworkSessionId: team.weworkSessionId ?? team.id, cha
       runtimeSettings: runtimeSettings(workspaceContext.weworkConfig),
       employee: { id: employee.id, displayName: employee.displayName, roleName: employee.roleName, skills: employee.builtInSkills ?? [] },
       work: { id: `group-${delivery.id}`, title: 'WeWork group conversation', goal: context.trigger.text },
-      session: { id: `${team.weworkSessionId ?? team.id}-group-${employee.id}-${employee.activeSession.id}-${profile.id}`, messages: [] },
-      wework: { teamId: team.id, weworkSessionId: team.weworkSessionId ?? team.id, group: true, deliveryId, chat: true, context, modules: structuredClone(team.modules), isLead: employee.isLead === true, permissionMode: employee.activeSession.permissionMode ?? 'auto' },
+      session: { id: `${displaySession.id}-${profile.id}`, messages: [] },
+      wework: { displaySessionId: displaySession.id, teamId: team.id, weworkSessionId: team.weworkSessionId ?? team.id, group: true, deliveryId, chat: true, context, modules: structuredClone(team.modules), isLead: employee.isLead === true, permissionMode: employee.activeSession.permissionMode ?? 'auto' },
     };
   }
   async #initializeWorkspaces(teams) {
@@ -363,13 +428,24 @@ wework: { teamId: team.id, weworkSessionId: team.weworkSessionId ?? team.id, cha
     if (!metadata || !['ssh-password', 'ssh-private-key'].includes(metadata.kind)) throw new Error('SSH credential reference is missing or has the wrong kind');
     return assignment;
   }
+  async recordEvents(spec, events) {
+    if (!spec.wework?.displaySessionId) return;
+    await this.api.appendRuntimeEvents(spec.employeeId, spec.wework.displaySessionId, spec.id, events);
+    this.coordinator?.runtime.journal?.publish({type:'wework.updated', runId:spec.id});
+  }
   async finish(spec, result, error) {
     const state = error ? (error.name === 'AbortError' ? 'idle' : 'error') : spec.wework.chat ? 'idle' : 'waiting';
     await this.api.setEmployeeActivity(spec.employeeId,state,error ? error.message ?? '执行失败' : spec.wework.chat ? '当前没有执行中的任务' : '执行完成，等待交付审核');
+    if (spec.wework.displaySessionId) await this.api.setSessionActivity(spec.employeeId,spec.wework.displaySessionId,{state,detail:error ? error.message ?? '执行失败' : '执行完成'});
     this.coordinator?.runtime.journal?.publish({type:'wework.updated'});
     if (spec.wework.group) return; // Coordinator publishes only after runtime terminal state is durable.
-    if (result?.finalText) await this.api.sendAssistantMessage(spec.employeeId, result.finalText);
-    if (spec.runtimeProfile.adapter === 'pi' && result?.usage?.context) await this.api.updateSessionContextUsage(spec.employeeId, result.usage);
+    if (result?.finalText) {
+      const employee = (await this.api.snapshot()).teams.flatMap(team => team.employees).find(employee => employee.id === spec.employeeId);
+      const displaySession = employee && (spec.wework.displaySessionId ? employeeSessions(employee).find(session => session.id === spec.wework.displaySessionId) : employee.activeSession);
+      const streamed = displaySession?.messages.filter(message => message.runtimeRunId === spec.id && message.runtimeKind === 'text').map(message => message.text).join('') ?? '';
+      if (!streamed.endsWith(result.finalText)) await this.api.sendAssistantMessage(spec.employeeId, result.finalText, spec.wework.displaySessionId);
+    }
+    if (spec.runtimeProfile.adapter === 'pi' && result?.usage?.context) await this.api.updateSessionContextUsage(spec.employeeId, result.usage, spec.wework.displaySessionId);
     if (!spec.wework.chat) {
       await this.api.reportProgress(spec.workId, {
         summary: error ? 'Execution interrupted or failed; task remains unaccepted.' : 'Execution finished; delivery still requires submission and review.',

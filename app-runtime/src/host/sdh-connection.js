@@ -7,6 +7,11 @@ const normalizeUrl = (value) => {
   return url.toString().replace(/\/$/, '');
 };
 
+export function remoteSdhCapabilities(health, reachable) {
+  const tools = reachable && health?.capabilities?.tools === true && health?.capabilities?.toolResultResume === true;
+  return { streaming: reachable, resumeSession: reachable, cancellation: reachable, workspace: false, tools };
+}
+
 export class SdhConnectionStore {
   constructor(path) { this.path = path; }
   async get() {

@@ -1,7 +1,7 @@
 import type { WeWorkEmployee, WeWorkTeam, WorkItem } from '../domain/wework';
 
 export type WorkActor = { employeeId: string; runId: string };
-export type WorkDocument = { id: string; title: string; content: string; kind: 'input' | 'decision' | 'output'; revision: number; previousId?: string; createdAt: string };
+export type WorkDocument = { id: string; title: string; content: string; kind: 'input' | 'decision' | 'output'; revision: number; previousId?: string; createdAt: string; sourceWorkId?: string; sourceDocumentId?: string; sourceNodeId?: string };
 export type ProgressRecord = { id: string; summary: string; blockers: string; nextStep: string; actor?: WorkActor; createdAt: string };
 export type Deliverable = { id: string; summary: string; documentIds: string[]; inputDocumentIds: string[]; taskDefinition: string; evidence: string; knownIssues: string; actor?: WorkActor; createdAt: string };
 export type WorkReview = { id: string; deliverableId: string; decision: 'accepted' | 'changes_requested'; feedback: string; createdAt: string };
@@ -35,6 +35,10 @@ function sameSources(r: WorkRecords, delivery: Deliverable) { return JSON.string
 export function acceptedDeliverable(work: WorkItem) {
   const r = records(work), latest = r.deliverables.at(-1);
   return Boolean(latest && work.deliveryStatus === 'accepted' && latest.taskDefinition === definition(work) && sameSources(r, latest) && r.reviews.some((review) => review.deliverableId === latest.id && review.decision === 'accepted'));
+}
+export function submittedDeliverable(work: WorkItem) {
+  const r = records(work), latest = r.deliverables.at(-1);
+  return Boolean(latest && ['submitted', 'accepted'].includes(work.deliveryStatus ?? '') && latest.taskDefinition === definition(work) && sameSources(r, latest));
 }
 
 export function createWorkContextApi(ports: {

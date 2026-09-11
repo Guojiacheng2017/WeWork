@@ -5,6 +5,7 @@ import { StageHeader } from './components/layout/StageHeader';
 import { PendingWorkBar } from './components/layout/PendingWorkBar';
 import { WeWorkStage3D } from './components/WeWorkStage3D';
 import { WorkflowDagStage } from './components/stage/WorkflowDagStage';
+import { ResourceAllocationLab } from './components/stage/ResourceAllocationLab';
 import { TeamManagementView } from './components/team/TeamManagementView';
 import { ExecutionSettingsDialog } from './components/settings/ExecutionSettingsDialog';
 import { EmployeeWorkbench } from './components/workbench/EmployeeWorkbench';
@@ -26,6 +27,7 @@ export const App: React.FC = () => {
   const [roundResize, setRoundResize] = useState<{ startX: number; startWidth: number } | null>(null);
   const [roundDrawersExpanded, setRoundDrawersExpanded] = useState(true);
   const [monitorOpen, setMonitorOpen] = useState(false);
+  const [dagPage, setDagPage] = useState<'dag' | 'lab'>('dag');
   const {
     teams,
     selectedTeamId,
@@ -85,8 +87,9 @@ export const App: React.FC = () => {
   const openFullTeamChat = () => { setTeamManagementSection('chat'); useWeWorkStore.getState().setTopology('teamManagement'); };
 
 
-  if ((!startupSettled && !enteringWeWork) || serviceStatus === 'loading') {
-    return landing;
+
+  if (serviceStatus === 'loading') {
+    return <div role="status" className="grid h-screen place-items-center bg-slate-50 text-sm text-slate-500">正在恢复工作界面…</div>;
   }
 
   if (serviceStatus === 'error' && teams.length === 0) {
@@ -104,6 +107,7 @@ export const App: React.FC = () => {
       <main className="flex-1 flex flex-col h-full min-w-0 relative">
         {/* Top Header */}
         <StageHeader />
+        {topology === 'workflowDag' && <nav aria-label="工作流页面" className="flex gap-2 border-b border-slate-200 bg-white px-4 py-2">{(['dag', 'lab'] as const).map(page => <button key={page} type="button" aria-pressed={dagPage === page} onClick={() => setDagPage(page)} className={`rounded-lg px-3 py-2 text-xs ${dagPage === page ? 'bg-sky-50 text-sky-700' : 'text-slate-500'}`}>{page === 'dag' ? '工作 DAG' : '任务与资源 · 实验'}</button>)}</nav>}
 
         {/* Central Pure 2D Stage */}
         <div className="flex-1 relative w-full h-full overflow-hidden bg-slate-50/50">
@@ -131,7 +135,7 @@ export const App: React.FC = () => {
               <div className="round-drawer-shell" data-expanded={roundDrawersExpanded} style={{ width: roundDrawersExpanded ? pendingPanelWidth + 8 : 52 }}>{roundDrawersExpanded&&<div role="separator" aria-label="调整圆桌与协作抽屉宽度" aria-orientation="vertical" onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); setRoundResize({ startX: event.clientX, startWidth: pendingPanelWidth }); }} className="round-drawer-resize-zone relative w-2 shrink-0 cursor-col-resize"/>}<div className="wework-round-pending min-w-0 shrink-0" style={{ width: roundDrawersExpanded ? pendingPanelWidth : 52 }}><PendingWorkBar embedded onExpandedChange={setRoundDrawersExpanded} onOpenTeamChat={openFullTeamChat} /></div></div>
               </div>
             ) : topology === 'workflowDag' ? (
-              <WorkflowDagStage workflow={currentTeam?.workflow} employees={employees} pendingPanelWidth={pendingPanelWidth} onPendingPanelWidthChange={setPendingPanelWidth} onOpenTeamChat={openFullTeamChat} />
+              dagPage === 'lab' ? <ResourceAllocationLab /> : <WorkflowDagStage workflow={currentTeam?.workflow} workflows={currentTeam?.workflows} employees={employees} pendingPanelWidth={pendingPanelWidth} onPendingPanelWidthChange={setPendingPanelWidth} onOpenTeamChat={openFullTeamChat} />
             ) : (
               <TeamManagementView initialSection={teamManagementSection} portalPage={portalPage} onPortalNavigate={setPortalPage} />
             )}

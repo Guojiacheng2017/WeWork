@@ -153,3 +153,31 @@ test('@all creates one shared message and one idempotent delivery per employee',
  expect(saved.collaborationDeliveries?.map(d=>d.employeeId)).toEqual([team.employees[0].id,target.id]);
  expect(saved.collaborationDeliveries?.every(d=>d.messageId===message.id)).toBe(true);
 });
+
+test('team lead can read all team group messages without importing private workbench history', async () => {
+  const { api, team, target } = await setup();
+  const lead = team.employees[0];
+  const other = await api.postGroupMessage(team.id, { text: 'Other employee update', recipientId: target.id, requestId: 'lead-other', contextTagIds: ['unsubscribed'] });
+  await api.sendMessage(target.id, 'PRIVATE-WORKBENCH');
+  const trigger = await api.postGroupMessage(team.id, { text: 'Summarize everyone', recipientId: lead.id, requestId: 'lead-trigger' });
+  const context = await api.getGroupContext(team.id, trigger.deliveryId!);
+  expect(context.conversation.map(message => message.id)).toContain(other.id);
+  expect(JSON.stringify(context)).not.toContain('PRIVATE-WORKBENCH');
+  expect((await api.readGroupMessage(team.id, other.id, 0, trigger.deliveryId)).text).toBe('Other employee update');
+});
+
+test('member asks the lead before lead dispatches all, excluding the lead itself', async () => {
+ const {api,team,target}=await setup();
+ const trigger=await api.postGroupMessage(team.id,{text:'Discuss',recipientId:target.id,requestId:'policy-start'});
+ await api.reserveGroupDelivery(team.id,trigger.deliveryId!,'member-run');
+ const member={employeeId:target.id,runId:'member-run',deliveryId:trigger.deliveryId};
+ await expect(api.requestCollaboration(team.id,{text:'Everyone',recipientId:'all',requestId:'denied-all'},member)).rejects.toThrow('request approval');
+ const request=await api.requestCollaboration(team.id,{text:'Please approve a team discussion',recipientId:team.employees[0].id,requestId:'ask-lead'},member);
+ await api.reserveGroupDelivery(team.id,request.deliveryId!,'lead-run');
+ const lead={employeeId:team.employees[0].id,runId:'lead-run',deliveryId:request.deliveryId};
+ const all=await api.requestCollaboration(team.id,{text:'Approved, everyone discuss',recipientId:'all',requestId:'approved-all'},lead);
+ const deliveries=(await api.snapshot()).teams[0].collaborationDeliveries!.filter(item=>item.messageId===all.id);
+ expect(deliveries.map(item=>item.employeeId)).toEqual([target.id]);
+ await api.requestCollaboration(team.id,{text:'Approved, everyone discuss',recipientId:'all',requestId:'approved-all'},lead);
+ expect((await api.snapshot()).teams[0].collaborationDeliveries!.filter(item=>item.messageId===all.id)).toHaveLength(1);
+});

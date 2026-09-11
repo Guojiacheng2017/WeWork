@@ -176,3 +176,8 @@ textarea[data-ui="field"] { resize: vertical; }
 ::selection { background: #b8d3f2; color: #0f172a; }
 
 .project-table .project-row { grid-template-columns: minmax(210px,1.2fr) 115px 120px 85px 140px minmax(180px,1fr) 28px; }
+
+/* One continuous canvas for the member rail, transcript and composer. */
+.ww-conversation-layout { background:var(--ww-canvas); }
+.ww-conversation-layout > aside, .ww-conversation-layout > section { background:transparent; }
+.ww-conversation-layout .ww-employee-control[aria-pressed="true"] { background:var(--ww-muted); color:var(--ww-accent); }

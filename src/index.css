@@ -117,7 +117,7 @@ html.wework-desktop .wework-stage-header button { white-space: nowrap; }
 }
 .wework-stage__employee { position: absolute; aspect-ratio: 1; transform: translate(-50%, -50%); transform-origin: center; pointer-events: auto; transition: opacity 160ms ease; }
 .wework-stage__employee-button { position: relative; display: grid; width: 100%; height: 100%; padding: 0; place-items: center; overflow: visible; border: 0; border-radius: 50%; background: transparent; color: #0f172a; cursor: pointer; }
-.wework-stage__employee-button:focus-visible { outline: 2px solid #c7000b; outline-offset: 4px; }
+.ww-employee-control:focus-visible { outline: none; }
 .wework-stage__avatar { display: block; width: 100%; height: 100%; transition: transform 180ms cubic-bezier(.22,1,.36,1); }
 .wework-stage[data-mode="topDown"] .wework-stage__employee-button:hover .wework-stage__avatar { transform: scale(1.15); }
 .wework-stage__identity { position: absolute; top: calc(100% + 8px); left: 50%; display: grid; min-width: max-content; gap: 3px; transform: translateX(-50%); text-align: center; pointer-events: none; }
@@ -308,3 +308,35 @@ html.wework-desktop .wework-window-controls button:hover {
   .round-drawer-shell, .wework-stage__avatar, .wework-stage__add-surface { transition: none !important; animation: none !important; }
   .wework-stage__employee-button:hover .wework-stage__avatar, .wework-stage__employee-button:hover .wework-stage__add-surface { transform: none !important; }
 }
+
+.team-chat-layout[data-history-open="true"] { grid-template-columns: minmax(0,1fr) minmax(180px,28%); }
+@media(min-width:1024px) { .team-chat-layout[data-history-open="true"] { grid-template-columns: 180px minmax(0,1fr) minmax(220px,28%); } }
+.team-chat-history { overflow: hidden; }
+
+.wework-stage__identity small { max-width: 160px; overflow: hidden; text-overflow: ellipsis; font-size: 11px; color: #64748b; }
+
+.employee-workbench { max-width: 1060px; height: min(80vh, 780px); }
+.employee-workbench[data-details-open="false"] { max-width: 780px; }
+.workbench-sidebar { width: clamp(300px, 30vw, 360px); }
+.employee-workbench .composer-toolbar { flex-wrap: wrap; row-gap: 10px; }
+.employee-workbench .composer-toolbar > div { flex-wrap: wrap; }
+.employee-workbench .composer-toolbar > div:last-child { margin-left: auto; }
+.employee-workbench .composer-toolbar button, .employee-workbench .composer-toolbar summary { white-space: nowrap; flex-shrink: 0; }
+.employee-workbench .workbench-permission { width: 116px; flex-shrink: 0; padding: 6px 10px; border: 1px solid #e2e8f0; border-radius: 16px; }
+.employee-workbench .employee-config-fields textarea { resize: none; }
+@media(max-width:760px) {
+ .employee-workbench > .flex-1 { flex-direction: column; overflow-y: auto; }
+ .workbench-conversation { min-height: 360px; flex-shrink: 0; }
+ .workbench-sidebar { width: 100%; min-height: 420px; border-left: 0; border-top: 1px solid #e2e8f0; }
+}
+
+.workbench-avatar-toggle { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 50%; background: transparent; box-shadow: none; cursor: pointer; }
+.workbench-avatar-toggle:hover { opacity: .85; }
+.employee-workbench .workbench-identity { border: 0; border-radius: 0; box-shadow: none; background: transparent; padding: 4px 40px 16px 0; border-bottom: 1px solid #edf0f3; }
+.workbench-details > .rounded-xl { border: 0; border-bottom: 1px solid #edf0f3; border-radius: 0; box-shadow: none; padding: 4px 0 16px; }
+.employee-workbench .employee-config-fields { padding: 16px 20px; gap: 16px 12px; }
+.employee-workbench .employee-config-fields > section { border-color: #edf0f3; padding: 4px 0 16px; }
+.employee-workbench .employee-config-fields > section[aria-label="助手配色"] { padding-bottom: 16px; }
+.employee-workbench .employee-config-fields input[type="color"] { width: 24px; height: 24px; padding: 2px; border-radius: 50%; overflow: hidden; }
+.employee-workbench .employee-config-fields input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+.employee-workbench .employee-config-fields input[type="color"]::-webkit-color-swatch { border: 0; border-radius: 50%; }

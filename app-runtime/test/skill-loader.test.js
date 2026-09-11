@@ -1,9 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,symlink} from 'node:fs/promises';
-import {join} from 'node:path';
+import {dirname,join,resolve} from 'node:path';
 import {tmpdir} from 'node:os';
+import {fileURLToPath} from 'node:url';
 import {discoverAvailableSkills,loadEmployeeSkills} from '../src/skill-loader.js';
+
+const bundledWeWorkSkills = resolve(dirname(fileURLToPath(import.meta.url)), '../skills');
+
+test('bundled workflow lead skill is discoverable and contains executable WeWork guidance', async () => {
+  const roots = [{ root: bundledWeWorkSkills, source: 'wework' }];
+  const skills = await discoverAvailableSkills({ bundledRoots: roots });
+  const lead = skills.find((skill) => skill.id === 'wework-workflow-lead');
+  assert.equal(lead?.source, 'wework');
+  const loaded = await loadEmployeeSkills([{ id: lead.id, name: lead.name }], { bundledRoots: roots });
+  assert.match(loaded.loaded[0].content, /wework_configure_work_type/);
+  assert.match(loaded.loaded[0].content, /wework_save_dag/);
+  assert.match(loaded.loaded[0].content, /wework_start_dag/);
+});
 
 test('discovers real workspace and bundled Skill packages with stable IDs',async()=>{
   const workspace=await mkdtemp(join(tmpdir(),'wework-workspace-skills-'));

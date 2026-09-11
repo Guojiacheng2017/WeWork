@@ -28,6 +28,18 @@ describe('local WeWork service', () => {
 
   beforeEach(() => { storage = new MemoryWeWorkStorage(); });
 
+  it('embeds the workflow lead skill on new and transferred team leads', async () => {
+    const api = createLocalWeWorkApi(storage);
+    const team = await api.createTeam({ name: 'Skill team', runtime: 'Workspace' });
+    expect(team.employees[0].builtInSkills).toContainEqual({ id: 'wework-workflow-lead', name: 'WeWork 工作流负责人' });
+    await api.updateEmployee(team.employees[0].id, { displayName: team.employees[0].displayName, roleName: team.employees[0].roleName, runtime: 'Workspace', skills: [] });
+    expect((await api.snapshot()).teams[0].employees[0].builtInSkills).toEqual([]);
+    const member = await api.addEmployee(team.id, { displayName: 'Next lead', roleName: 'Lead', runtime: 'Workspace' });
+    await api.setLead(team.id, member.id);
+    const updated = (await api.snapshot()).teams[0].employees.find((employee) => employee.id === member.id)!;
+    expect(updated.builtInSkills).toContainEqual({ id: 'wework-workflow-lead', name: 'WeWork 工作流负责人' });
+  });
+
   it('persists bootstrap and runtime profiles without a server', async () => {
     const first = createLocalWeWorkApi(storage);
     await first.bootstrap(seed);
@@ -270,6 +282,134 @@ describe('local WeWork service', () => {
     expect(employee.completedWorkItems?.map((work) => work.id)).toEqual([first.id]);
   });
 
+  it('executes a DAG by passing accepted upstream outputs into downstream work', async () => {
+    const api = createLocalWeWorkApi(storage);
+    const workflowTeam: WeWorkTeam = {
+      ...seed[0], topology: 'workflowDag',
+      employees: [
+        { ...seed[0].employees[0], runtime: 'Workspace', id: 'employee-upstream' },
+        { ...seed[0].employees[0], runtime: 'Workspace', id: 'employee-downstream', activeSession: { ...seed[0].employees[0].activeSession, id: 'session-2' } },
+      ],
+      workflow: {
+        id: 'workflow-1', name: 'Pipeline', description: '', nodes: [
+          { id: 'collect', label: 'Collect', roleName: 'Researcher', stepNumber: 1, status: 'ready', assignedEmployeeId: 'employee-upstream', requires: [], goal: 'Collect source material' },
+          { id: 'write', label: 'Write', roleName: 'Writer', stepNumber: 2, status: 'waiting', assignedEmployeeId: 'employee-downstream', requires: ['collect'], goal: 'Write from the source material', inputBindings: [{ sourceNodeId: 'collect', documentTitles: ['Research'], includeSummary: true }], requiredSkillIds: ['fact-check'] },
+        ],
+      },
+    };
+    await api.bootstrap([workflowTeam]);
+
+    const started = await api.startWorkflow('team-1');
+    expect(started.nodes.map((node) => node.status)).toEqual(['running', 'waiting']);
+    let team = (await api.snapshot()).teams[0];
+    const upstreamWork = team.employees[0].currentWorkItem!;
+    const downstreamWork = team.pendingWorks.find((work) => work.workflowNodeId === 'write')!;
+    expect(downstreamWork.status).toBe('blocked');
+    expect(downstreamWork.records?.documents).toEqual([]);
+
+    const output = await api.saveWorkDocument(upstreamWork.id, { title: 'Research', content: 'accepted facts', kind: 'output' });
+    const irrelevant = await api.saveWorkDocument(upstreamWork.id, { title: 'Scratchpad', content: 'do not forward', kind: 'output' });
+    await api.submitDeliverable(upstreamWork.id, { summary: 'facts ready', documentIds: [output.id, irrelevant.id], evidence: 'checked' });
+    await api.completeCurrent('employee-upstream');
+
+    team = (await api.snapshot()).teams[0];
+    expect(team.workflow?.nodes.map((node) => node.status)).toEqual(['completed', 'running']);
+    const running = team.employees[1].currentWorkItem!;
+    expect(running.workflowNodeId).toBe('write');
+    expect(running.records?.documents).toEqual([
+      expect.objectContaining({ kind: 'input', title: 'Collect / Research', content: 'accepted facts', sourceWorkId: upstreamWork.id, sourceDocumentId: output.id, sourceNodeId: 'collect' }),
+      expect.objectContaining({ kind: 'input', title: 'Collect / 交付摘要', content: 'facts ready', sourceWorkId: upstreamWork.id, sourceNodeId: 'collect' }),
+    ]);
+  });
+
+  it('waits for every dependency and does not duplicate propagated DAG inputs', async () => {
+    const api = createLocalWeWorkApi(storage);
+    const worker = (id: string, sessionId: string) => ({ ...seed[0].employees[0], id, runtime: 'Workspace' as const, activeSession: { ...seed[0].employees[0].activeSession, id: sessionId } });
+    await api.bootstrap([{
+      ...seed[0], topology: 'workflowDag', employees: [worker('a', 'sa'), worker('b', 'sb'), worker('c', 'sc')],
+      workflow: { id: 'wf', name: 'Merge', description: '', nodes: [
+        { id: 'a', label: 'A', roleName: 'A', stepNumber: 1, status: 'ready', assignedEmployeeId: 'a', requires: [] },
+        { id: 'b', label: 'B', roleName: 'B', stepNumber: 2, status: 'ready', assignedEmployeeId: 'b', requires: [] },
+        { id: 'c', label: 'C', roleName: 'C', stepNumber: 3, status: 'waiting', assignedEmployeeId: 'c', requires: ['a', 'b'] },
+      ] },
+    }]);
+    await api.startWorkflow('team-1');
+    for (const employeeId of ['a', 'b']) {
+      const current = (await api.snapshot()).teams[0].employees.find((employee) => employee.id === employeeId)!.currentWorkItem!;
+      const output = await api.saveWorkDocument(current.id, { title: `${employeeId} output`, content: employeeId, kind: 'output' });
+      const delivery = await api.submitDeliverable(current.id, { summary: 'done', documentIds: [output.id], evidence: 'checked' });
+      await api.reviewDeliverable(current.id, { deliverableId: delivery.id, decision: 'accepted', feedback: 'approved' });
+      await api.completeCurrent(employeeId);
+      const team = (await api.snapshot()).teams[0];
+      if (employeeId === 'a') expect(team.pendingWorks.find((work) => work.workflowNodeId === 'c')?.status).toBe('blocked');
+    }
+    const downstream = (await api.snapshot()).teams[0].employees.find((employee) => employee.id === 'c')!.currentWorkItem!;
+    expect(downstream.records?.documents).toHaveLength(2);
+  });
+
+  it('persists accepted node outputs in the native workflow data store when configured', async () => {
+    const api = createLocalWeWorkApi(storage);
+    await api.bootstrap([{
+      ...seed[0], topology: 'workflowDag', employees: [{ ...seed[0].employees[0], runtime: 'Workspace' }],
+      workflow: { id: 'wf-data', name: 'Research', description: '', nodes: [
+        { id: 'facts', label: 'Facts', roleName: 'Researcher', stepNumber: 1, status: 'ready', assignedEmployeeId: 'employee-1', requires: [], outputPersistence: 'database' },
+      ] },
+    }]);
+    await api.startWorkflow('team-1');
+    const work = (await api.snapshot()).teams[0].employees[0].currentWorkItem!;
+    const output = await api.saveWorkDocument(work.id, { title: 'Facts JSON', content: '{"fact":"verified"}', kind: 'output' });
+    await api.submitDeliverable(work.id, { summary: 'done', documentIds: [output.id], evidence: 'checked' });
+    await api.completeCurrent('employee-1');
+    expect((await api.snapshot()).teams[0].workflowDataRecords).toEqual([
+      expect.objectContaining({ workflowId: 'wf-data', nodeId: 'facts', workId: work.id, sourceDocumentId: output.id, title: 'Facts JSON', content: '{"fact":"verified"}' }),
+    ]);
+  });
+
+  it('keeps multiple independent workflow graphs for one team and selects between them', async () => {
+    const api = createLocalWeWorkApi(storage);
+    await api.bootstrap(seed);
+    const first = await api.createWorkflow('team-1', { name: '客户交付', temporary: false, workType: 'CV交付', leadEmployeeId: 'employee-1', participantEmployeeIds: ['employee-1'] });
+    const second = await api.createWorkflow('team-1', { name: '临时排查', temporary: true, workType: '故障排查', leadEmployeeId: 'employee-1', participantEmployeeIds: ['employee-1'] });
+    let team = (await api.snapshot()).teams[0];
+    expect(team.workflows?.map((workflow) => workflow.name)).toEqual(['客户交付', '临时排查']);
+    expect(team.activeWorkflowId).toBe(second.id);
+    expect(team.workflow?.id).toBe(second.id);
+    await api.selectWorkflow('team-1', first.id);
+    team = (await api.snapshot()).teams[0];
+    expect(team.activeWorkflowId).toBe(first.id);
+    expect(team.workflow?.id).toBe(first.id);
+    expect(team.workflows?.find((workflow) => workflow.id === second.id)?.temporary).toBe(true);
+    expect((await api.listWorkflowReferences('team-1', 'CV交付')).map((workflow) => workflow.id)).toEqual([first.id]);
+  });
+
+  it('allows a concrete task to link to zero or one DAG', async () => {
+    const api = createLocalWeWorkApi(storage);
+    await api.bootstrap(seed);
+    await api.configureWorkType('team-1', { id: 'data', name: '数据工作', leadEmployeeId: 'employee-1', participantEmployeeIds: ['employee-1'], assignmentPolicy: 'manual' });
+    const work = await api.createWork('team-1', { title: '清洗本周数据', goal: '输出可用数据', priority: 'medium', category: 'Digital' });
+    expect(work.dagWorkflowId).toBeUndefined();
+    const workflow = await api.createWorkflow('team-1', { name: work.title, temporary: true, workTypeId: 'data', workId: work.id });
+    const linked = (await api.snapshot()).teams[0].pendingWorks.find((candidate) => candidate.id === work.id)!;
+    expect(linked.dagWorkflowId).toBe(workflow.id);
+    expect(workflow.workId).toBe(work.id);
+    await expect(api.createWorkflow('team-1', { name: '重复 DAG', temporary: true, workTypeId: 'data', workId: work.id })).rejects.toThrow('already has a DAG');
+  });
+
+  it('uses a team-lead-maintained work type pool for balanced DAG assignment', async () => {
+    const api = createLocalWeWorkApi(storage);
+    const busy = { ...seed[0].employees[0], id: 'busy', runtime: 'Workspace' as const, currentWorkItem: { id: 'existing', title: 'Existing', goal: 'busy', status: 'running' as const, assignedEmployeeId: 'busy', priority: 'medium' as const, category: 'Digital' as const, createdAt: 'now' } };
+    const idle = { ...seed[0].employees[0], id: 'idle', runtime: 'Workspace' as const, activeSession: { ...seed[0].employees[0].activeSession, id: 'idle-session' } };
+    await api.bootstrap([{ ...seed[0], employees: [busy, idle] }]);
+    await api.configureWorkType('team-1', { id: 'data', name: '数据工作', leadEmployeeId: 'busy', participantEmployeeIds: ['busy', 'idle'], assignmentPolicy: 'balanced', assignmentWeights: { busy: 1, idle: 1 } });
+    const workflow = await api.createWorkflow('team-1', { name: '数据清洗', temporary: true, workTypeId: 'data', leadEmployeeId: 'busy', participantEmployeeIds: ['busy', 'idle'] });
+    await api.saveWorkflow('team-1', { ...workflow, nodes: [{ id: 'clean', label: '清洗', roleName: '数据', stepNumber: 1, status: 'ready', requires: [] }] });
+    await api.startWorkflow('team-1');
+    const team = (await api.snapshot()).teams[0];
+    expect(team.workTypes?.[0]).toMatchObject({ id: 'data', name: '数据工作', contextTagId: 'work-type:data' });
+    expect(team.workflow?.nodes[0].assignedEmployeeId).toBe('idle');
+    expect(team.employees.find((employee) => employee.id === 'idle')?.currentWorkItem?.workflowNodeId).toBe('clean');
+  });
+
   it('persists employee workspace assignments without storing SSH secret material', async () => {
     const api = createLocalWeWorkApi(storage);
     await api.bootstrap(seed);
@@ -323,4 +463,40 @@ it('returning the last task clears stale waiting activity', async () => {
  const team = (await api.snapshot()).teams[0];
  expect(employeeRingState(team.employees[0])).toBe('idle');
  expect(team.pendingWorks.map(work=>work.id)).toContain('work-state');
+});
+
+it('persists ordered run output and activity without duplicates across reloads', async () => {
+  const storage = new MemoryWeWorkStorage(); const api = createLocalWeWorkApi(storage);
+  await api.bootstrap(seed);
+  const events = [
+    { sequence: 1, type: 'assistant.delta', text: 'Preparing' },
+    { sequence: 2, type: 'assistant.activity', activity: 'tool', text: 'Read file' },
+    { sequence: 3, type: 'assistant.delta', text: 'Result' },
+  ];
+  await api.appendRuntimeEvents('employee-1', 'session-1', 'run-1', events);
+  await api.appendRuntimeEvents('employee-1', 'session-1', 'run-1', events);
+  const reloaded = createLocalWeWorkApi(storage);
+  expect((await reloaded.snapshot()).teams[0].employees[0].activeSession.messages.map(message => message.text)).toEqual(['Preparing', '工具 · Read file', 'Result']);
+  await api.appendRuntimeEvents('employee-1', 'old-session', 'old-run', events);
+  expect((await reloaded.snapshot()).teams[0].employees[0].activeSession.messages).toHaveLength(3);
+});
+
+it('keeps private and work conversations separate across output, stop and private reset', async () => {
+  const api = createLocalWeWorkApi(new MemoryWeWorkStorage()); await api.bootstrap(seed);
+  const profile = await api.createRuntimeProfile(profileInput);
+  await api.updateEmployee('employee-1',{displayName:'Worker',roleName:'Engineer',runtime:'Pi',skills:[],defaultRuntimeProfileId:profile.id});
+  const work = await api.createWork('team-1', {title:'Analysis',goal:'Analyze',priority:'medium',category:'Digital'});
+  await api.assignWork(work.id,'employee-1');
+  const session = await api.ensureWorkSession('employee-1',work.id);
+  await api.sendMessage('employee-1','private');
+  await api.sendMessage('employee-1','work note',work.id);
+  await api.appendRuntimeEvents('employee-1',session.id,'work-run',[{sequence:1,type:'assistant.delta',text:'work output'}]);
+  const employee=(await api.snapshot()).teams[0].employees[0];
+  expect(employee.activeSession.messages.map(m=>m.text)).toEqual(['private']);
+  expect(employee.workSessions?.[work.id].messages.map(m=>m.text)).toEqual(['work note','work output']);
+  await api.resetEmployeeContext('employee-1');
+  const restored=(await api.snapshot()).teams[0].employees[0];
+  expect(restored.workSessions?.[work.id].id).toBe(session.id);
+  expect(restored.workSessions?.[work.id].messages).toHaveLength(2);
+  await expect(api.ensureWorkSession('employee-1','unrelated')).rejects.toThrow();
 });

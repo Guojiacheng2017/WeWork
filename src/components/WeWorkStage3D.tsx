@@ -339,7 +339,7 @@ export function WeWorkStage3D({
                 aria-current={selected ? "true" : undefined}
                 aria-label={seat.kind === "add" ? "助手入职" : `${seat.employee.displayName} · ${seat.employee.roleName}`}
                 aria-describedby={seat.kind==='employee'?`work-${seat.employee.id}`:undefined}
-                className="wework-stage__employee-button"
+                className="wework-stage__employee-button ww-employee-control"
                 onMouseEnter={(event) => positionWorkTooltip(event.currentTarget)}
                 onFocus={(event) => positionWorkTooltip(event.currentTarget)}
                 tabIndex={stageVisible ? 0 : -1}
@@ -369,7 +369,7 @@ export function WeWorkStage3D({
                     <span id={`work-${seat.employee.id}`} role="tooltip" className="wework-stage__work-tooltip"><strong>{workStatus?.label}</strong><span>{seat.employee.currentWorkItem?.title || '当前工作'}</span><small>{workStatus?.detail}</small></span>
                     <span className="wework-stage__identity">
                       <strong>{seat.employee.displayName}</strong>
-                      {mode === "eyeLevel" ? <small>{seat.employee.roleName}</small> : null}
+                      <small title={seat.employee.roleName}>{seat.employee.roleName}</small>
                     </span>
                   </>
                 )}

@@ -56,6 +56,11 @@ const remoteWeWorkApi = {
       body: JSON.stringify(workflow),
     });
   },
+  startWorkflow: (teamId: string) => request<WorkflowTemplate>(`/v1/teams/${teamId}/workflow/start`, { method: 'POST' }),
+  createWorkflow: (teamId: string, body: { name: string; description?: string; temporary?: boolean; workType?: string; workTypeId?: string; leadEmployeeId?: string; participantEmployeeIds?: string[]; sourceWorkflowId?: string; workId?: string }) => request<WorkflowTemplate>(`/v1/teams/${teamId}/workflows`, { method: 'POST', body: JSON.stringify(body) }),
+  selectWorkflow: (teamId: string, workflowId: string) => request<WorkflowTemplate>(`/v1/teams/${teamId}/workflows/${workflowId}/select`, { method: 'POST' }),
+  listWorkflowReferences: (teamId: string, workType: string) => request<WorkflowTemplate[]>(`/v1/teams/${teamId}/workflows/references?workType=${encodeURIComponent(workType)}`),
+  configureWorkType: (teamId: string, body: object) => request(`/v1/teams/${teamId}/work-types`, { method: 'PUT', body: JSON.stringify(body) }),
   sendMessage: (employeeId: string, text: string) => request(`/v1/employees/${employeeId}/messages`, { method: 'POST', body: JSON.stringify({ text }) }),
   sendAssistantMessage: (employeeId: string, text: string) => request(`/v1/employees/${employeeId}/messages`, { method: 'POST', body: JSON.stringify({ text, sender: 'employee' }) }),
   sendTeamMessage: (teamId: string, text: string, _actor?: unknown, contextTagIds?: string[]) => request(`/v1/teams/${teamId}/messages`, { method: 'POST', body: JSON.stringify({ text, contextTagIds }) }),

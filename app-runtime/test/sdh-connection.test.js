@@ -3,7 +3,7 @@ import test from 'node:test';
 import { mkdtemp } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { RemoteSdhClient, SdhConnectionStore } from '../src/host/sdh-connection.js';
+import { RemoteSdhClient, SdhConnectionStore, remoteSdhCapabilities } from '../src/host/sdh-connection.js';
 
 test('persists one remote SDH service URL and probes its health endpoint', async () => {
   const root = await mkdtemp(join(tmpdir(), 'wework-sdh-'));
@@ -33,4 +33,10 @@ test('uses the model configured by the existing SDH dashboard when catalog is em
   assert.equal(catalog.models[0].modelId,'Qwen');
   assert.equal(catalog.models[0].verified,true);
   assert.equal(catalog.defaultId,'sdh:configured-default');
+});
+
+test('advertises remote tools only when the SDH handshake supports result resumption', () => {
+  assert.equal(remoteSdhCapabilities({capabilities:{tools:true,toolResultResume:true}},true).tools,true);
+  assert.equal(remoteSdhCapabilities({capabilities:{tools:true}},true).tools,false);
+  assert.equal(remoteSdhCapabilities({capabilities:{tools:true,toolResultResume:true}},false).tools,false);
 });

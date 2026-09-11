@@ -12,6 +12,7 @@ export type HarnessInstallation = {
   executionReady?: boolean;
   weworkToolsReady?: boolean;
   reason?: string;
+  diagnostics?: { lookupCommand: string; path: string; candidates: string[]; attempts: Array<{ executablePath: string; error: string }> };
   executablePath?: string;
   version?: string;
   capabilities: HarnessCapabilities;
@@ -208,6 +209,7 @@ export class LoopbackWeWorkHost {
   testSshWorkspace(assignment: Extract<WorkspaceAssignment, { kind: 'ssh' }>) { return this.request<WorkspaceProbe>('/v1/workspaces/ssh/probe', { method: 'POST', body: JSON.stringify(assignment) }); }
   startRun(spec: object) { return this.request<{ id: string; status: string }>('/v1/runs', { method: 'POST', body: JSON.stringify(spec) }); }
   steerEmployee(employeeId: string, message: string) { return this.request<{accepted: boolean; runId?: string}>(`/v1/employees/${encodeURIComponent(employeeId)}/steer`, {method:'POST', body:JSON.stringify({message})}); }
+  stopEmployee(employeeId: string) { return this.weworkCall('stopEmployee', [employeeId]); }
   cancelRun(runId: string) { return this.request<{ accepted: boolean }>(`/v1/runs/${encodeURIComponent(runId)}/cancel`, { method: 'POST' }); }
   run(runId: string) { return this.request<{ id: string; status: string; finalText?: string; error?: string }>(`/v1/runs/${encodeURIComponent(runId)}`); }
   events(after = 0) { return this.request<{ events: Array<RuntimeEvent & { id: number }>; cursor: number }>('/v1/events', { headers: { 'last-event-id': String(after) } }); }

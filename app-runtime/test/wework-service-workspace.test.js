@@ -380,3 +380,104 @@ test('missing legacy generated employee path resolves to canonical directory wit
  await wework.api.updateEmployee(id,{...input,workspaceAssignment:{kind:'local',rootPath:join(root,'custom-missing')}});
  assert.equal((await wework.prepare(spec)).workspace.rootPath,join(root,'custom-missing'));
 });
+
+test('stopping an employee uses Host ownership and waits before updating activity', async () => {
+  let state = null;
+  const wework = new WeWorkService({ getItem: () => state, setItem: (_key, value) => { state = value; } });
+  const team = await wework.api.createTeam({ name: 'Stop test' }); const employee = team.employees[0];
+  const calls = [];
+  wework.attachCoordinator({
+    withEmployees: async (ids, operation) => { calls.push(ids); return operation(); },
+    stopEmployee: async id => { calls.push(id); }, runtime: { journal: { publish: event => calls.push(event.type) } },
+  });
+  assert.deepEqual(await wework.call('stopEmployee', [employee.id]), { stopped: true });
+  assert.deepEqual(calls, [[employee.id], employee.id, 'wework.updated']);
+  assert.equal((await wework.api.snapshot()).teams[0].employees[0].executionActivity.state, 'idle');
+});
+
+test('Host persists partial output on cancellation and avoids duplicate final replies', async () => {
+  let state = null;
+  const storage = { getItem: () => state, setItem: (_key, value) => { state = value; } };
+  const wework = new WeWorkService(storage);
+  const team = await wework.api.createTeam({ name: 'Transcript' }); const employee = team.employees[0];
+  const spec = {id:'run',employeeId:employee.id,runtimeProfile:{adapter:'pi'},wework:{chat:true,displaySessionId:employee.activeSession.id}};
+  await wework.recordEvents(spec, [{sequence:1,type:'assistant.delta',text:'first'}, {sequence:2,type:'assistant.activity',activity:'tool',text:'read'}, {sequence:3,type:'assistant.delta',text:'done'}]);
+  await wework.finish(spec, {finalText:'done'});
+  const restored = new WeWorkService(storage);
+  assert.deepEqual((await restored.api.snapshot()).teams[0].employees[0].activeSession.messages.map(m=>m.text), ['first','工具 · read','done']);
+  await wework.finish(spec, null, new DOMException('执行已停止','AbortError'));
+  const current = (await restored.api.snapshot()).teams[0].employees[0];
+  assert.equal(current.executionActivity.state,'idle');
+  assert.equal(current.activeSession.messages.length,3);
+});
+
+test('group steering records the accepted instruction without queuing another delivery', async () => {
+  let state = null;
+  const wework = new WeWorkService({ getItem: () => state, setItem: (_key, value) => { state = value; } });
+  const team = await wework.api.createTeam({name:'Group'}); const employee=team.employees[0];
+  await wework.api.postGroupMessage(team.id,{text:'first',recipientId:employee.id,requestId:'first'});
+  const delivery=(await wework.api.snapshot()).teams[0].collaborationDeliveries[0];
+  await wework.api.reserveGroupDelivery(team.id,delivery.id,'group-run');
+  const received=[];
+  wework.attachCoordinator({runtime:{steerEmployee:async(...args)=>{received.push(args);return {accepted:true,runId:'group-run'}},journal:{publish(){}}}});
+  await wework.call('steerGroupDelivery',[team.id,delivery.id,'revised']);
+  const current=(await wework.api.snapshot()).teams[0];
+  assert.equal(current.collaborationDeliveries.length,1);
+  assert.equal(current.teamMessages.at(-1).text,'revised');
+  assert.equal(current.teamMessages.at(-1).replyToMessageId,delivery.messageId);
+  assert.deepEqual(received,[[employee.id,'revised',{deliveryId:delivery.id}]]);
+  await assert.rejects(wework.call('steerGroupDelivery',['other-team',delivery.id,'wrong']));
+  assert.equal(received.length,1);
+});
+
+test('workbench tab stop cannot cancel another session and private send cannot steer work', async () => {
+ let state=null; const wework=new WeWorkService({getItem:()=>state,setItem:(_key,value)=>{state=value}});
+ const team=await wework.api.createTeam({name:'Tabs'});const employee=team.employees[0];
+ const stopped=[]; const steered=[];
+ wework.attachCoordinator({withEmployees:async(_ids,operation)=>operation(),stopEmployee:async id=>stopped.push(id),runtime:{active:new Map([['work',{employeeId:employee.id,displaySessionId:'other-session'}]]),steerEmployee:async(...args)=>{steered.push(args);return {accepted:true}},journal:{publish(){}}}});
+ assert.deepEqual(await wework.call('stopWorkbenchTab',[employee.id,'private']),{stopped:false});
+ await assert.rejects(wework.call('sendWorkbenchTab',[employee.id,'private','hello']),/另一个 Tab/);
+ assert.deepEqual(stopped,[]);assert.deepEqual(steered,[]);
+ assert.equal((await wework.api.snapshot()).teams[0].employees[0].activeSession.messages.length,0);
+});
+
+test('managed preparation uses distinct private, work and group display sessions', async () => {
+ let state=null;const wework=new WeWorkService({getItem:()=>state,setItem:(_key,value)=>{state=value}});
+ const team=await wework.api.createTeam({name:'Sessions',runtime:'Workspace'});const employee=team.employees[0];
+ const profile=await wework.api.createRuntimeProfile({name:'Pi',adapter:'pi',model:{provider:'pi',modelId:'default'},enabled:true});
+ await wework.api.updateEmployee(employee.id,{displayName:'Worker',roleName:'Engineer',runtime:'Pi',skills:[],defaultRuntimeProfileId:profile.id});
+ const work=await wework.api.createWork(team.id,{title:'Work',goal:'Goal',priority:'medium',category:'Digital'});await wework.api.assignWork(work.id,employee.id);
+ const chat=await wework.prepare({id:'chat-run',employeeId:employee.id,workId:'chat-test',work:{goal:'Private'}});
+ const task=await wework.prepare({id:'task-run',employeeId:employee.id,workId:work.id});
+ await wework.api.postGroupMessage(team.id,{text:'Group',recipientId:employee.id,requestId:'group'});
+ const delivery=(await wework.api.snapshot()).teams[0].collaborationDeliveries[0];await wework.api.reserveGroupDelivery(team.id,delivery.id,'group-run');
+ const group=await wework.prepare({id:'group-run',wework:{deliveryId:delivery.id}});
+ assert.equal(new Set([chat.wework.displaySessionId,task.wework.displaySessionId,group.wework.displaySessionId]).size,3);
+ await wework.api.resetEmployeeContext(employee.id);
+ assert.equal((await wework.prepare({id:'task-again',employeeId:employee.id,workId:work.id})).session.id,task.session.id);
+});
+
+test('sending private while a task is assigned starts private execution, not that task', async t => {
+ const root=await mkdtemp(join(tmpdir(),'wework-tab-routing-'));t.after(()=>rm(root,{recursive:true,force:true}));
+ const {RuntimeManager}=await import('../src/host/runtime-manager.js');
+ const {CheckpointStore}=await import('../src/host/checkpoint-store.js');
+ const {EventJournal}=await import('../src/host/server.js');
+ const {CollaborationCoordinator}=await import('../src/host/collaboration-coordinator.js');
+ const wework=new WeWorkService(new FileWeWorkStorage(join(root,'state.json')));
+ const team=await wework.api.createTeam({name:'Routing',runtime:'Workspace'});const employee=team.employees[0];
+ const profile=await wework.api.createRuntimeProfile({name:'Pi',adapter:'pi',model:{provider:'pi',modelId:'default'},enabled:true});
+ await wework.api.updateEmployee(employee.id,{displayName:'Worker',roleName:'Engineer',runtime:'Pi',skills:[],defaultRuntimeProfileId:profile.id});
+ const work=await wework.api.createWork(team.id,{title:'Task',goal:'Task goal',priority:'medium',category:'Digital'});await wework.api.assignWork(work.id,employee.id);
+ const specs=[];
+ const runtime=new RuntimeManager({store:new CheckpointStore(root),journal:new EventJournal(),execute:async(spec,{emit})=>{specs.push(spec);emit({type:'assistant.delta',text:spec.wework.chat?'private reply':'task reply'});return {messages:[],finalText:spec.wework.chat?'private reply':'task reply'}},onEvents:(spec,events)=>wework.recordEvents(spec,events),onFinish:(...args)=>wework.finish(...args)});
+ const coordinator=new CollaborationCoordinator({wework,runtime});wework.attachCoordinator(coordinator);t.after(()=>coordinator.close());
+ await wework.call('sendWorkbenchTab',[employee.id,'private','Private question']);
+ await Promise.all([...runtime.active.values()].map(run=>run.done));
+ assert.equal(specs[0].wework.chat,true);assert.equal(specs[0].work.goal,'Private question');
+ await wework.call('sendWorkbenchTab',[employee.id,work.id,'Work instruction']);
+ await Promise.all([...runtime.active.values()].map(run=>run.done));
+ const current=(await wework.api.snapshot()).teams[0].employees[0];
+ assert.deepEqual(current.activeSession.messages.map(message=>message.text),['Private question','private reply']);
+ assert.deepEqual(current.workSessions[work.id].messages.map(message=>message.text),['Work instruction','task reply']);
+ assert.equal(specs[1].work.id,work.id);
+});

@@ -195,3 +195,19 @@ it('clears a stale renderer run only when Host confirms no active executor',asyn
  ports.host.steerEmployee=async()=>{throw new Error('offline')};await expect(scheduler.sendPrompt('employee','again')).rejects.toThrow('offline');expect(scheduler.employeeForRun('run-1')).toBe('employee');
  ports.host.steerEmployee=async()=>({accepted:false});await expect(scheduler.sendPrompt('employee','again')).resolves.toEqual({steered:false});expect(starts()).toBe(2);
 });
+
+it('managed starts omit duplicate profile, workspace and session preparation',async()=>{
+ const specs:any[]=[];
+ const scheduler=new LocalRunScheduler({managedWeWork:true,wework:{snapshot:async()=>({teams:[{employees:[{id:'e',activeSession:{}}]}]}),listRuntimeProfiles:async()=>{throw Error('must not fetch profiles')}},host:{currentWorkspace:async()=>{throw Error('must not resolve workspace')},startRun:async(spec:object)=>{specs.push(spec);return {id:'run',status:'running'}}}});
+ await scheduler.startPrompt('e','hello');
+ expect(specs[0]).toMatchObject({employeeId:'e',weworkManaged:true,work:{goal:'hello'}});
+ expect(Object.keys(specs[0]).sort()).toEqual(['employeeId','id','weworkManaged','work','workId']);
+});
+
+it('stops a host-owned run without a renderer run mapping', async () => {
+ const {ports}=concurrencyFixture(); const stopped:string[]=[];
+ ports.host.stopEmployee=async(id:string)=>{stopped.push(id)};
+ const scheduler=new LocalRunScheduler(ports);
+ await scheduler.cancelCurrentWork('employee');
+ expect(stopped).toEqual(['employee']);
+});

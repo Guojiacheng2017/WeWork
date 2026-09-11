@@ -4,7 +4,7 @@ import type { ResolvedWorkspace } from '../domain/wework';
 type SchedulerPorts = {
   managedWeWork?: boolean;
   wework: { snapshot(): Promise<any>; listRuntimeProfiles(): Promise<{ profiles: any[] }> };
-  host: { currentWorkspace(): Promise<ResolvedWorkspace>; dataInfo?(): Promise<{ rootPath: string }>; startRun(spec: object): Promise<{ id: string; status: string }>; steerEmployee?(employeeId: string, message: string): Promise<{accepted:boolean;runId?:string}>; cancelRun?(runId: string): Promise<unknown>; run?(runId: string): Promise<{ status: string; finalText?: string }> };
+  host: { currentWorkspace(): Promise<ResolvedWorkspace>; dataInfo?(): Promise<{ rootPath: string }>; startRun(spec: object): Promise<{ id: string; status: string }>; steerEmployee?(employeeId: string, message: string): Promise<{accepted:boolean;runId?:string}>; stopEmployee?(employeeId: string): Promise<unknown>; cancelRun?(runId: string): Promise<unknown>; run?(runId: string): Promise<{ status: string; finalText?: string }> };
   storage?: Pick<Storage, 'getItem' | 'setItem'>;
 };
 
@@ -44,11 +44,13 @@ export class LocalRunScheduler {
   }
   private async startCurrentWorkUnlocked(employeeId: string, prompt?: string) {
     if (this.activeByEmployee.has(employeeId)) throw new WeWorkHostError('RUN_ALREADY_ACTIVE', 'employee already has an active run', 409);
-    const [{ teams }, { profiles }] = await Promise.all([this.ports.wework.snapshot(), this.ports.wework.listRuntimeProfiles()]);
+    const { teams } = await this.ports.wework.snapshot();
     const team = teams.find((candidate: any) => candidate.employees.some((employee: any) => employee.id === employeeId));
     const employee = team?.employees.find((employee: any) => employee.id === employeeId);
     const work = employee?.currentWorkItem;
     if (!employee || !work) throw new WeWorkHostError('HOST_INTERNAL', 'employee has no running work', 409);
+    if (this.ports.managedWeWork) return this.startManaged(employeeId, work.id, prompt);
+    const { profiles } = await this.ports.wework.listRuntimeProfiles();
     const sessionExecution = employee.activeSession.execution;
     const profileId = work.runtimeProfileId ?? employee.defaultRuntimeProfileId ?? team.defaultRuntimeProfileId;
     const runtimeProfile = sessionExecution?.enabled !== false && sessionExecution ? sessionExecution : profiles.find((profile) => profile.id === profileId && profile.enabled);
@@ -82,11 +84,13 @@ export class LocalRunScheduler {
   }
   private async startPromptUnlocked(employeeId: string, prompt: string) {
     if (this.activeByEmployee.has(employeeId)) throw new WeWorkHostError('RUN_ALREADY_ACTIVE', 'employee already has an active run', 409);
-    const [{ teams }, { profiles }] = await Promise.all([this.ports.wework.snapshot(), this.ports.wework.listRuntimeProfiles()]);
+    const { teams } = await this.ports.wework.snapshot();
     const team = teams.find((candidate: any) => candidate.employees.some((employee: any) => employee.id === employeeId));
     const employee = team?.employees.find((employee: any) => employee.id === employeeId);
     if (!employee) throw new WeWorkHostError('HOST_INTERNAL', 'employee not found', 404);
     if (this.ports.managedWeWork && employee.currentWorkItem) return this.startCurrentWorkUnlocked(employeeId, prompt);
+    if (this.ports.managedWeWork) return this.startManaged(employeeId, `chat-${crypto.randomUUID()}`, prompt);
+    const { profiles } = await this.ports.wework.listRuntimeProfiles();
     const sessionExecution = employee.activeSession.execution;
     const profileId = employee.defaultRuntimeProfileId ?? team.defaultRuntimeProfileId;
     const runtimeProfile = sessionExecution?.enabled !== false && sessionExecution ? sessionExecution : profiles.find((profile) => profile.id === profileId && profile.enabled);
@@ -106,7 +110,20 @@ export class LocalRunScheduler {
     this.persist();
     return run;
   }
+  private async startManaged(employeeId: string, workId: string, prompt?: string) {
+    const chat = workId.startsWith('chat-');
+    const run = await this.ports.host.startRun({id:`run-${crypto.randomUUID()}`, employeeId, workId, weworkManaged:true, ...(chat ? {work:{goal:prompt}} : {prompt})});
+    this.activeByEmployee.set(employeeId, run.id);
+    if (chat) this.promptRunIds.add(run.id);
+    this.persist();
+    return run;
+  }
   async cancelCurrentWork(employeeId: string) {
+    if (this.ports.host.stopEmployee && this.ports.managedWeWork !== false) {
+      await this.ports.host.stopEmployee(employeeId);
+      this.markTerminal(employeeId);
+      return;
+    }
     const runId = this.activeByEmployee.get(employeeId);
     if (!runId || !this.ports.host.cancelRun) throw new WeWorkHostError('RUN_NOT_ACTIVE', 'employee has no active run', 409);
     await this.ports.host.cancelRun(runId);

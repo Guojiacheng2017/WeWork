@@ -15,6 +15,9 @@ export type ContextMetric = {
 };
 
 export type MessageItem = {
+  runtimeRunId?: string;
+  runtimeSequence?: number;
+  runtimeKind?: string;
   broadcast?: boolean;
   contextTagIds?: string[];
   sourceRunId?: string;
@@ -56,6 +59,11 @@ export type WorkItem = {
   category: 'Paperwork' | 'Digital';
   createdAt: string;
   runtimeProfileId?: string;
+  workflowId?: string;
+  workflowNodeId?: string;
+  requiredSkillIds?: string[];
+  contextTagIds?: string[];
+  dagWorkflowId?: string;
 };
 
 export type RuntimeProfile = {
@@ -220,6 +228,7 @@ export function normalizeWorkspaceAssignment(input: unknown): WorkspaceAssignmen
 
 
 export type EmployeeSession = {
+  activity?: {state: 'idle'|'working'|'waiting'|'error'; detail: string; runId?: string};
   title?: string;
   contextTagIds?: string[];
   contextMeasuredAt?: string;
@@ -273,6 +282,8 @@ export type WeWorkEmployee = {
   builtInSkills: SkillRef[];
   activeSession: EmployeeSession;
   sessionHistory?: EmployeeSession[];
+  workSessions?: Record<string, EmployeeSession>;
+  groupSession?: EmployeeSession;
   artifacts: ArtifactItem[];
   currentWorkItem?: WorkItem;
   queuedWorkItems?: WorkItem[];
@@ -288,6 +299,29 @@ export type RoleNode = {
   assignedEmployeeId?: string;
   requires?: string[];
   position?: { x: number; y: number };
+  goal?: string;
+  constraints?: string;
+  acceptanceCriteria?: string;
+  inputRequirements?: string;
+  outputRequirements?: string;
+  workItemId?: string;
+  inputDocumentIds?: string[];
+  outputDocumentIds?: string[];
+  outputPersistence?: 'handoff' | 'database';
+  blockedReason?: string;
+  inputBindings?: Array<{ sourceNodeId: string; documentTitles?: string[]; includeSummary?: boolean }>;
+  requiredSkillIds?: string[];
+};
+
+export type WorkflowDataRecord = {
+  id: string;
+  workflowId: string;
+  nodeId: string;
+  workId: string;
+  sourceDocumentId: string;
+  title: string;
+  content: string;
+  createdAt: string;
 };
 
 export type WorkflowTemplate = {
@@ -296,9 +330,34 @@ export type WorkflowTemplate = {
   description: string;
   nodes: RoleNode[];
   version?: number;
+  temporary?: boolean;
+  workType?: string;
+  leadEmployeeId?: string;
+  participantEmployeeIds?: string[];
+  sourceWorkflowId?: string;
+  contextTagId?: string;
+  workTypeId?: string;
+  workId?: string;
+};
+
+/**
+ * A reusable or task-specific team orchestration. Kept as an alias so persisted
+ * WorkflowTemplate records and existing runtime clients remain compatible.
+ */
+export type Orchestration = WorkflowTemplate;
+
+export type WorkTypeDefinition = {
+  id: string;
+  name: string;
+  contextTagId: string;
+  leadEmployeeId?: string;
+  participantEmployeeIds: string[];
+  assignmentPolicy: 'balanced' | 'manual';
+  assignmentWeights?: Record<string, number>;
 };
 
 export type WeWorkTeam = {
+  workflowLeadSkillMigrated?: boolean;
   weworkSessionId?: string;
   archivedAt?: string;
   workspaceAssignment?: WorkspaceAssignment;
@@ -315,6 +374,10 @@ export type WeWorkTeam = {
   pendingWorks: WorkItem[];
   teamMessages?: MessageItem[];
   workflow?: WorkflowTemplate;
+  workflows?: WorkflowTemplate[];
+  activeWorkflowId?: string;
+  workTypes?: WorkTypeDefinition[];
+  workflowDataRecords?: WorkflowDataRecord[];
   modules?: TeamModuleRegistry;
   collaborationDatabase?: CollaborationDatabase;
 };

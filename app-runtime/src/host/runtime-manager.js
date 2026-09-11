@@ -1,7 +1,7 @@
 import { HostError } from './errors.js';
 export class RuntimeManager {
-  constructor({ store, journal, execute, onFinish }) {
-    Object.assign(this, { store, journal, execute, onFinish });
+  constructor({ store, journal, execute, onFinish, onEvents }) {
+    Object.assign(this, { store, journal, execute, onFinish, onEvents });
     this.active = new Map();
   }
   async start(spec) {
@@ -10,7 +10,7 @@ export class RuntimeManager {
     const controller = new AbortController();
     const completion = Promise.withResolvers();
     const controlsReady = Promise.withResolvers();
-    this.active.set(spec.id, { controller, employeeId: spec.employeeId, group: Boolean(spec.wework?.group), adapter: spec.runtimeProfile.adapter, controlsReady, done: completion.promise });
+    this.active.set(spec.id, { controller, employeeId: spec.employeeId, group: Boolean(spec.wework?.group), deliveryId: spec.wework?.deliveryId, displaySessionId: spec.wework?.displaySessionId, adapter: spec.runtimeProfile.adapter, controlsReady, done: completion.promise });
     try {
       if (await this.store.getRun(spec.id)) throw new HostError('RUN_ALREADY_ACTIVE', 'run id was already used', 409);
       const checkpointId = spec.session?.id ?? spec.employeeId;
@@ -35,11 +35,32 @@ export class RuntimeManager {
     } catch (error) { this.active.delete(spec.id); completion.resolve({ error }); throw error; }
   }
   async perform(spec, run, controller) {
+    let sequence = 0, pending = [], timer, persistenceError;
+    let writes = Promise.resolve();
+    const flush = () => {
+      clearTimeout(timer); timer = null;
+      if (pending.length) {
+        const batch = pending; pending = [];
+        writes = writes.then(async () => {
+          await this.onEvents?.(spec, batch);
+        }).catch(error => { persistenceError ??= error; });
+      }
+      return writes;
+    };
+    const emit = (event) => {
+      this.journal.publish({ ...event, runId: run.id, employeeId: spec.employeeId });
+      if (this.onEvents && ['assistant.delta', 'assistant.activity'].includes(event.type)) {
+        pending.push({ ...event, sequence: ++sequence });
+        if (!timer) timer = setTimeout(flush, 75);
+      }
+    };
     try {
       run.status = 'running'; run.updatedAt = new Date().toISOString();
       await this.store.putRun(run); this.journal.publish({ type: 'run.started', runId: run.id });
       if (controller.signal.aborted) throw controller.signal.reason;
-      const result = await this.execute(spec, { signal: controller.signal, registerControls: (controls) => { const active = this.active.get(run.id); if(active) { active.controls = controls; if(controls) active.controlsReady.resolve(controls); } }, emit: (event) => this.journal.publish({ ...event, runId: run.id }) });
+      const result = await this.execute(spec, { signal: controller.signal, registerControls: (controls) => { const active = this.active.get(run.id); if(active) { active.controls = controls; if(controls) active.controlsReady.resolve(controls); } }, emit });
+      await flush();
+      if (persistenceError) throw persistenceError;
       if (controller.signal.aborted) throw controller.signal.reason;
       const maxMessages = spec.runtimeSettings?.context?.maxMessages;
       const messages = Array.isArray(result.messages) && Number.isSafeInteger(maxMessages) && maxMessages > 0 ? result.messages.slice(-maxMessages) : result.messages;
@@ -48,18 +69,22 @@ export class RuntimeManager {
       Object.assign(run, { status: 'succeeded', finalText: result.finalText, updatedAt: new Date().toISOString() });
       await this.store.putRun(run); this.journal.publish({ type: 'run.succeeded', runId: run.id, finalText: result.finalText });
     } catch (error) {
-      const cancelled = controller.signal.aborted;
+      await flush();
+      error = persistenceError ?? error;
+      const cancelled = controller.signal.aborted && !persistenceError;
       try { await this.onFinish?.(spec, null, error); } catch { /* Run failure remains durable even if WeWork storage is unavailable. */ }
       Object.assign(run, { status: cancelled ? 'cancelled' : 'failed', error: cancelled ? 'cancelled' : error?.message ?? String(error), updatedAt: new Date().toISOString() });
       await this.store.putRun(run); this.journal.publish({ type: `run.${run.status}`, runId: run.id, error: run.error });
     }
   }
-  async steerEmployee(employeeId, message) {
+  async steerEmployee(employeeId, message, { deliveryId, sessionId } = {}) {
     if(typeof message !== 'string' || !message.trim() || message.length > 100000) throw new HostError('INVALID_MESSAGE', '补充消息不能为空或过长', 422);
     const entry = [...this.active.entries()].find(([, active]) => active.employeeId === employeeId);
     if(!entry) return { accepted: false };
     const [runId, active] = entry;
-    if(active.group) throw new HostError('GROUP_RUN_ACTIVE', '助手正在回复群聊，请在群聊中 @ 该助手补充消息，或等待回复完成。', 409);
+    if (sessionId && active.displaySessionId !== sessionId) throw new HostError('SESSION_BUSY', '助手正在另一个 Tab 执行；请等待，或切到对应 Tab 停止。', 409);
+    if(deliveryId && (!active.group || active.deliveryId !== deliveryId)) throw new HostError('RUN_NOT_ACTIVE', '该群聊执行已结束或发生变化', 409);
+    if(active.group && !deliveryId) throw new HostError('GROUP_RUN_ACTIVE', '助手正在回复群聊，请在群聊中使用“补充本轮”，或先停止执行。', 409);
     if(active.adapter !== 'pi') throw new HostError('STEERING_UNSUPPORTED', '当前执行器暂不支持执行中补充消息，请等待本次执行完成。', 409);
     const controls = await Promise.race([active.controlsReady.promise, active.done.then(()=>null)]);
     if(!controls || !active.controls) { await active.done; return { accepted: false }; }
@@ -67,7 +92,7 @@ export class RuntimeManager {
     this.journal.publish({type:'assistant.activity',runId,activity:'status',text:'补充消息已发送到当前执行'});
     return { accepted: true, runId };
   }
-  async cancel(id) { const active = this.active.get(id); if (!active) throw new HostError('RUN_NOT_ACTIVE', 'run is not active', 409); active.controller.abort(new Error('cancelled')); }
+  async cancel(id) { const active = this.active.get(id); if (!active) throw new HostError('RUN_NOT_ACTIVE', 'run is not active', 409); active.controller.abort(new DOMException('执行已停止', 'AbortError')); }
   async cancelAndWait(id, { timeoutMs = 15000 } = {}) {
     const active = this.active.get(id);
     if (!active) {
@@ -75,7 +100,7 @@ export class RuntimeManager {
       if (['succeeded', 'failed', 'cancelled'].includes(run?.status)) return run;
       throw new HostError('RUN_NOT_ACTIVE', 'run has no confirmed active executor or terminal state', 409);
     }
-    active.controller.abort(new Error('cancelled'));
+    active.controller.abort(new DOMException('执行已停止', 'AbortError'));
     let timer;
     try {
       const outcome = await Promise.race([

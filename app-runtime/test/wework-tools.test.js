@@ -217,3 +217,93 @@ test('lead edits DAG; members can change status but cannot edit DAG or Gantt eve
   await assert.rejects(move.execute('lead-not-owner', { workItemId: item.id, statusId }), /assigned employee/);
   await assert.rejects(wework.call('updateAssignedWorkItemStatus', [team.id, item.id, statusId]), /unsupported/);
 });
+
+test('every group member receives collaboration and roster tools in each permission mode', () => {
+  for (const permissionMode of ['ask', 'auto', 'full']) {
+    const tools = createWeWorkTools({}, { id: 'run', employeeId: 'member', wework: { group: true, chat: true, isLead: false, permissionMode } });
+    assert.ok(tools.some(tool => tool.name === 'wework_request_collaboration'));
+    assert.ok(tools.some(tool => tool.name === 'wework_get_team'));
+    assert.ok(!tools.some(tool => tool.name === 'wework_save_dag'));
+  }
+});
+
+test('DAG write tool persists explicit node positions', async (t) => {
+  const { wework, spec } = await setup(t);
+  const save = createWeWorkTools(wework, spec).find((tool) => tool.name === 'wework_save_dag');
+  assert.equal(save.mutating, true);
+  const result = await save.execute('layout', { expectedVersion: 0, name: 'Layout', nodes: [
+    { id: 'node-1', roleName: 'Lead', label: 'Start', position: { x: 120, y: 240 } },
+  ] });
+  assert.deepEqual(result.details.nodes[0].position, { x: 120, y: 240 });
+});
+
+test('lead can start a saved DAG as real linked work through the WeWork tool', async (t) => {
+  const { wework, team, employeeId, spec } = await setup(t);
+  await wework.api.saveWorkflow(team.id, {
+    id: 'wf-executable', name: 'Executable', description: '', nodes: [
+      { id: 'stage-1', roleName: 'Analyst', label: 'Produce evidence', goal: 'Produce an accepted evidence document', assignedEmployeeId: employeeId, requires: [], stepNumber: 1, status: 'ready' },
+    ],
+  });
+  const tools = createWeWorkTools(wework, spec);
+  const started = (await tools.find((tool) => tool.name === 'wework_start_dag').execute('start', {})).details;
+  assert.ok(started.nodes[0].workItemId);
+  const snapshot = await wework.api.snapshot();
+  assert.equal(snapshot.teams[0].employees[0].queuedWorkItems[0].workflowNodeId, 'stage-1');
+});
+
+test('team lead maintains work types and creates a temporary DAG from same-type history', async (t) => {
+  const { wework, team, employeeId, spec } = await setup(t);
+  const tools = createWeWorkTools(wework, spec);
+  const configured = (await tools.find((tool) => tool.name === 'wework_configure_work_type').execute('type', {
+    id: 'data', name: '数据工作', leadEmployeeId: employeeId, participantEmployeeIds: [employeeId], assignmentPolicy: 'balanced', assignmentWeights: { [employeeId]: 1 },
+  })).details;
+  assert.equal(configured.contextTagId, 'work-type:data');
+  const template = await wework.api.createWorkflow(team.id, { name: '历史数据清洗', temporary: false, workTypeId: 'data' });
+  await wework.api.selectWorkflow(team.id, template.id);
+  const references = (await tools.find((tool) => tool.name === 'wework_list_workflow_references').execute('refs', { workTypeId: 'data' })).details;
+  assert.deepEqual(references.map((item) => item.id), [template.id]);
+  const created = (await tools.find((tool) => tool.name === 'wework_create_workflow').execute('create', { name: '本周数据清洗', workTypeId: 'data', sourceWorkflowId: template.id })).details;
+  assert.equal(created.temporary, true);
+  assert.equal(created.sourceWorkflowId, template.id);
+  assert.equal(created.contextTagId, 'work-type:data');
+});
+
+test('DAG tool preserves work metadata and selective downstream inputs without embedding skills on nodes', async (t) => {
+  const { wework, team, employeeId, spec } = await setup(t);
+  await wework.api.configureWorkType(team.id, { id: 'data', name: '数据工作', leadEmployeeId: employeeId, participantEmployeeIds: [employeeId], assignmentPolicy: 'balanced' });
+  const workflow = await wework.api.createWorkflow(team.id, { name: 'Typed DAG', temporary: true, workTypeId: 'data' });
+  const save = createWeWorkTools(wework, spec).find((tool) => tool.name === 'wework_save_dag');
+  const result = (await save.execute('selective', { expectedVersion: workflow.version, name: workflow.name, nodes: [
+    { id: 'source', roleName: 'Researcher', label: 'Source' },
+    { id: 'use', roleName: 'Analyst', label: 'Use', requires: ['source'], inputBindings: [{ sourceNodeId: 'source', documentTitles: ['数据表'], includeSummary: false }] },
+  ] })).details;
+  assert.equal(result.workTypeId, 'data');
+  assert.equal(result.contextTagId, 'work-type:data');
+  assert.deepEqual(result.nodes[1].inputBindings, [{ sourceNodeId: 'source', documentTitles: ['数据表'], includeSummary: false }]);
+});
+
+test('downstream work sends revision feedback to its direct upstream owner without an approval gate', async (t) => {
+  const { wework, team, employeeId, spec: leadSpec } = await setup(t);
+  const upstream = await wework.api.addEmployee(team.id, { displayName: 'Upstream', roleName: 'Analyst', runtime: 'Workspace', skills: [] });
+  const downstream = await wework.api.addEmployee(team.id, { displayName: 'Downstream', roleName: 'Reviewer', runtime: 'Workspace', skills: [] });
+  for (const member of [upstream, downstream]) await wework.api.updateEmployee(member.id, { displayName: member.displayName, roleName: member.roleName, runtime: 'Workspace', skills: [], defaultRuntimeProfileId: leadSpec.runtimeProfile.id });
+  await wework.api.saveWorkflow(team.id, { id: 'feedback-flow', name: 'Feedback flow', description: '', leadEmployeeId: employeeId, participantEmployeeIds: [upstream.id, downstream.id], nodes: [
+    { id: 'source', roleName: 'Analyst', label: '准备数据', assignedEmployeeId: upstream.id, requires: [], stepNumber: 1, status: 'ready' },
+    { id: 'use', roleName: 'Reviewer', label: '使用数据', assignedEmployeeId: downstream.id, requires: ['source'], stepNumber: 2, status: 'waiting' },
+  ] });
+  const started = await wework.api.startWorkflow(team.id);
+  const sourceWorkId = started.nodes.find((node) => node.id === 'source').workItemId;
+  const sourceDocument = await wework.api.saveWorkDocument(sourceWorkId, { title: '结果', kind: 'output', content: 'first attempt' });
+  await wework.api.submitDeliverable(sourceWorkId, { summary: 'submitted once', documentIds: [sourceDocument.id], evidence: 'checked' }, { employeeId: upstream.id, runId: 'source-run' });
+  await wework.api.completeCurrent(upstream.id);
+  const snapshot = await wework.api.snapshot();
+  const downstreamWork = snapshot.teams[0].employees.find((item) => item.id === downstream.id).currentWorkItem;
+  const spec = await wework.prepare({ id: 'downstream-run', employeeId: downstream.id, workId: downstreamWork.id });
+  const feedback = createWeWorkTools(wework, spec).find((tool) => tool.name === 'wework_send_upstream_feedback');
+  await feedback.execute('feedback', { sourceNodeId: 'source', feedback: '缺少字段说明，请补充。' });
+  const after = await wework.api.snapshot();
+  const message = after.teams[0].teamMessages.at(-1);
+  assert.equal(message.recipientId, upstream.id);
+  assert.match(message.text, /缺少字段说明/);
+  assert.equal(after.teams[0].workflow.nodes.find((node) => node.id === 'use').status, 'running');
+});

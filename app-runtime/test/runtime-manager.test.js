@@ -120,3 +120,42 @@ test('private steering cannot enter an active public group run',async()=>{
  const manager=new RuntimeManager({});manager.active.set('group',{employeeId:'employee',group:true,adapter:'pi'});
  await assert.rejects(manager.steerEmployee('employee','private note'),error=>error.code==='GROUP_RUN_ACTIVE');
 });
+
+test('runtime drains ordered progress before cancellation is acknowledged', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'wework-progress-'));
+  const ready = Promise.withResolvers(); const batches = []; const finished = [];
+  const manager = new RuntimeManager({ store: new CheckpointStore(root), journal: new EventJournal(),
+    onEvents: async (_spec, events) => { batches.push(...events); },
+    onFinish: async () => finished.push(batches.map(event => event.text)),
+    execute: async (_spec, { emit, signal }) => {
+      emit({ type: 'assistant.delta', text: 'partial answer' });
+      emit({ type: 'assistant.activity', activity: 'tool', text: 'started tool' });
+      ready.resolve();
+      await new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+    } });
+  await manager.start({ id: 'progress', employeeId: 'employee', runtimeProfile: { adapter: 'pi' } });
+  await ready.promise;
+  await manager.cancelAndWait('progress');
+  assert.deepEqual(finished, [['partial answer', 'started tool']]);
+  assert.deepEqual(batches.map(event => event.sequence), [1, 2]);
+});
+
+test('group steering requires the exact active delivery and keeps the same run', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'wework-group-steer-'));
+  const ready = Promise.withResolvers(), finish = Promise.withResolvers(); const messages=[];
+  const manager = new RuntimeManager({store:new CheckpointStore(root),journal:new EventJournal(),execute:async(_spec,{registerControls})=>{registerControls({steer:async text=>messages.push(text)});ready.resolve();await finish.promise;return {messages:[],finalText:'done'};}});
+  await manager.start({id:'group-run',employeeId:'employee',runtimeProfile:{adapter:'pi'},wework:{group:true,deliveryId:'delivery'}});await ready.promise;
+  try {
+    await assert.rejects(manager.steerEmployee('employee','wrong',{deliveryId:'other'}));
+    assert.deepEqual(await manager.steerEmployee('employee','revise',{deliveryId:'delivery'}),{accepted:true,runId:'group-run'});
+    assert.deepEqual(messages,['revise']);
+  } finally {finish.resolve();await waitForTerminal(manager,'group-run');}
+});
+
+test('steering cannot cross workbench tabs', async () => {
+ const manager=new RuntimeManager({journal:new EventJournal()});const received=[];
+ manager.active.set('work-run',{employeeId:'employee',adapter:'pi',displaySessionId:'work-session',controls:{steer:async text=>received.push(text)},controlsReady:{promise:Promise.resolve({steer:async text=>received.push(text)})},done:new Promise(()=>{})});
+ await assert.rejects(manager.steerEmployee('employee','private text',{sessionId:'private-session'}),error=>error.code==='SESSION_BUSY');
+ assert.deepEqual(await manager.steerEmployee('employee','work text',{sessionId:'work-session'}),{accepted:true,runId:'work-run'});
+ assert.deepEqual(received,['work text']);
+});

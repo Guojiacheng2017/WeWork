@@ -16,7 +16,7 @@ import { createSshWorkspaceProbe, OpenSshService } from "./host/ssh.js";
 import { HarnessDetector } from "./host/harness-detector.js";
 import { HarnessPolicyStore } from "./host/harness-policy.js";
 import { executeHarness } from "./harness-dispatch.js";
-import { RemoteSdhClient, SdhConnectionStore } from './host/sdh-connection.js';
+import { RemoteSdhClient, SdhConnectionStore, remoteSdhCapabilities } from './host/sdh-connection.js';
 import { discoverAvailableSkills } from './skill-loader.js';
 import { WeWorkWorkspaceLayout } from './host/wework-workspace-layout.js';
 import { resolveWeWorkConfiguration } from './host/wework-configuration.js';
@@ -43,7 +43,8 @@ const installedPluginRoot = join(configRoot, 'plugins');
 const bundledPluginRoot = process.env.WEWORK_PLUGINS_DIR ?? (process.argv[1].endsWith('.cjs') ? join(dirname(process.argv[1]), 'plugins') : resolve(dirname(process.argv[1]), '../../plugins'));
 const pluginRoots = [installedPluginRoot, bundledPluginRoot];
 const piExtensionPath = process.env.WEWORK_PI_EXTENSION_PATH ?? join(dirname(process.argv[1]), 'pi-wework-extension.mjs');
-const harnesses = new HarnessDetector();
+const windowsCommandWrapperPath = process.env.WEWORK_WINDOWS_COMMAND_WRAPPER_PATH ?? join(dirname(process.argv[1]), 'pi-command-wrapper.ps1');
+const harnesses = new HarnessDetector({ windowsCommandWrapperPath });
 const sdhConnection = new SdhConnectionStore(join(configRoot, 'smalldashharness.json'));
 const sdh = new RemoteSdhClient({ connection: sdhConnection });
 const harnessPolicy = new HarnessPolicyStore(join(configRoot, "harness-policy.json"));
@@ -65,8 +66,9 @@ const runtime = new RuntimeManager({
   execute: withVaultCredential(vault, async (spec, options) => {
     const harnessId=spec.runtimeProfile.adapter==='smalldash'?'smalldashharness':spec.runtimeProfile.adapter;
     if(!(await harnessPolicy.get()).allowedHarnesses.includes(harnessId)) throw new Error('Harness is not allowed on this device');
-    return executeHarness(spec,{...options,dataRoot:runtimeDataRoot,legacyDataRoots:[weworkRoot,legacyDataRoot],migrationQuarantineRoot:join(configRoot,'migration-quarantine'),sdh,bundledSkillRoots:weworkSkillRoots,extensionPath:piExtensionPath,tools:spec.wework?createWeWorkTools(wework,spec,options.signal):[]});
+    return executeHarness(spec,{...options,dataRoot:runtimeDataRoot,legacyDataRoots:[weworkRoot,legacyDataRoot],migrationQuarantineRoot:join(configRoot,'migration-quarantine'),sdh,bundledSkillRoots:weworkSkillRoots,extensionPath:piExtensionPath,windowsCommandWrapperPath,tools:spec.wework?createWeWorkTools(wework,spec,options.signal):[]});
   }),
+  onEvents: (spec, events) => spec.wework ? wework.recordEvents(spec, events) : undefined,
   onFinish: (spec, result, error) => spec.wework ? wework.finish(spec, result, error) : undefined,
 });
 wework.isEmployeeActive = (employeeId) => [...runtime.active.values()].some((run) => run.employeeId === employeeId);
@@ -94,9 +96,10 @@ const services = {
   dataInfo: () => ({ rootPath: weworkRoot, configPath: configRoot, teamsPath: weworkRoot, runtimePath: join(configRoot, 'runtime'), platform: process.platform }),
   listHarnesses: async () => {
     const rows=await harnesses.detect(); const connection=await sdhConnection.get();
-    let reachable=false,version,reason=connection.configured?'远程服务不可达':'尚未配置远程服务地址';
-    if(connection.configured) try { const health=await sdh.health(); reachable=health.ok===true&&health.service==='smalldashharness'; version=health.version; reason=reachable?'已连接远程服务':'服务响应不兼容'; } catch(error) { reason=error.message; }
-    return rows.map(row=>row.harness==='smalldashharness'?{...row,kind:'local-service',available:connection.configured,executionReady:reachable,weworkToolsReady:false,version,reason,capabilities:{streaming:reachable,resumeSession:reachable,cancellation:reachable,workspace:false,tools:false},configuration:{source:'service'}}:row);
+    let reachable=false,version,health,reason=connection.configured?'远程服务不可达':'尚未配置远程服务地址';
+    if(connection.configured) try { health=await sdh.health(); reachable=health.ok===true&&health.service==='smalldashharness'; version=health.version; reason=reachable?'已连接远程服务':'服务响应不兼容'; } catch(error) { reason=error.message; }
+    const capabilities=remoteSdhCapabilities(health,reachable);
+    return rows.map(row=>row.harness==='smalldashharness'?{...row,kind:'local-service',available:connection.configured,executionReady:reachable,weworkToolsReady:capabilities.tools,version,reason,capabilities,configuration:{source:'service'}}:row);
   },
   getSdhConnection: async () => { const value=await sdhConnection.get(); if(!value.configured)return value; try { const health=await sdh.health(); if(health.service!=='smalldashharness')throw new Error('目标不是 smalldashharness 服务'); await sdh.models(); return {...value,reachable:true,service:health.service}; } catch(error) { return {...value,reachable:false,error:error.message}; } },
   setSdhConnection: async (input) => { const value=await sdhConnection.set(input); const health=await sdh.health(); if(health.service!=='smalldashharness')throw Object.assign(new Error('目标不是 smalldashharness 服务'),{code:'HARNESS_PROTOCOL_UNSUPPORTED'}); await sdh.models(); return {...value,reachable:true,service:health.service}; },

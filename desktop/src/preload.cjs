@@ -9,6 +9,7 @@ const chooseLocalWorkspace = () => {
   return directorySelection;
 };
 contextBridge.exposeInMainWorld("weworkHost", {
+  importAttachment: (input) => invoke('importAttachment', input),
   diagnostics: () => invoke('diagnostics'),
   clearDiagnostics: () => invoke('clearDiagnostics'),
   weworkCall: (method, args) => invoke("weworkCall", { method, args }),

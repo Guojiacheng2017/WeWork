@@ -1,3 +1,4 @@
+import { importAttachment } from './attachments.mjs';
 import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -47,6 +48,7 @@ const routes = {
 };
 
 ipcMain.handle("wework-host:invoke", async (_event, { method, payload }) => {
+  if (method === 'importAttachment') return importAttachment(app.getPath('userData'), payload);
   if (method === 'diagnostics') return diagnostics.snapshot({ host: supervisor.endpoint ? 'ready' : 'unavailable', pid: supervisor.child?.pid ?? null });
   if (method === 'clearDiagnostics') { diagnostics.clear(); return diagnostics.snapshot({ host: supervisor.endpoint ? 'ready' : 'unavailable', pid: supervisor.child?.pid ?? null }); }
   if (method === "chooseLocalWorkspace") {

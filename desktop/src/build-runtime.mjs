@@ -8,6 +8,7 @@ export async function buildRuntime() {
   const nodePaths=[resolve(desktop,'node_modules'),resolve(desktop,'../node_modules')];
   await build({entryPoints:[resolve(desktop,'../app-runtime/src/host-main.js')],bundle:true,platform:'node',format:'cjs',outfile:resolve(desktop,'runtime-dist/host-main.cjs'),nodePaths});
   await copyFile(resolve(desktop,'../app-runtime/src/pi-wework-extension.mjs'),resolve(desktop,'runtime-dist/pi-wework-extension.mjs'));
+  await copyFile(resolve(desktop,'../app-runtime/src/pi-command-wrapper.ps1'),resolve(desktop,'runtime-dist/pi-command-wrapper.ps1'));
   const skillsTarget=resolve(desktop,'runtime-dist/skills');
   await rm(skillsTarget,{recursive:true,force:true});
   await mkdir(skillsTarget,{recursive:true});
