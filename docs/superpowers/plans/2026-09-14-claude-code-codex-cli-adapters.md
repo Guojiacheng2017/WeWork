@@ -11,9 +11,9 @@
 ## Global Constraints
 
 - Target the locally verified command families: Claude Code `2.1.267` and Codex CLI `0.153.4`; feature-detect protocol behavior instead of comparing version strings.
-- Claude Code and Codex CLI must inherit their own login state, user configuration, model defaults and model access. Never accept an Office Base URL or credential for either adapter.
+- Claude Code and Codex CLI must inherit their own login state, user configuration, model defaults and model access. Never accept a WeWork Base URL or credential for either adapter.
 - An employee Session may follow the Harness default or request a model exposed/accepted by that Harness. A model override is passed only as the native CLI `--model` argument.
-- A native checkpoint may resume only when employee ID, adapter, execution profile ID and Office Session checkpoint key all match.
+- A native checkpoint may resume only when employee ID, adapter, execution profile ID and WeWork Session checkpoint key all match.
 - Same-Harness model changes retain the native session and native compaction. Cross-Harness checkpoint reuse remains forbidden by `SESSION_HARNESS_IMMUTABLE`.
 - Never use `--dangerously-skip-permissions`, `--dangerously-bypass-approvals-and-sandbox`, or a shell command string. Start exact executable paths with argv arrays and `shell:false`.
 - The MCP bridge is run-scoped, authenticated by an unguessable token, closure-bound to employee/run identity, and terminated before the employee ownership fence is released.
@@ -77,7 +77,7 @@
 - [ ] Write a fake-child test asserting a new run invokes the exact executable with `-p`, `--output-format stream-json`, `--verbose`, `--append-system-prompt`, a generated `--mcp-config`, `--permission-mode dontAsk`, and `--permission-prompts none`.
 - [ ] Assert the adapter omits `--model` for `modelId:'default'`, otherwise passes only `--model <native-id>`; it must never synthesize auth, provider URL or API-key environment variables.
 - [ ] Define parser fixtures for Claude `system` initialization, assistant text deltas, tool start/end, final `result`, usage/cost metadata and error records. Reject truncated output or exit-zero-without-result.
-- [ ] Capture the native `session_id` from the initialization/result stream. On continuation add `--resume <nativeSessionId>`; never use `--continue`, because it is cwd-global rather than Office-Session-specific.
+- [ ] Capture the native `session_id` from the initialization/result stream. On continuation add `--resume <nativeSessionId>`; never use `--continue`, because it is cwd-global rather than WeWork-Session-specific.
 - [ ] Generate a temporary MCP config containing only the bundled WeWork stdio server and run token. Remove it in `finally`; pass the generated WeWork MCP tool names through `--allowedTools` while leaving ordinary Claude Code permissions governed by its own settings and `dontAsk` denial behavior.
 - [ ] Map text chunks to `assistant.delta`, thinking/status to `assistant.activity`, and completed `wework_*` calls to `wework.updated`. Return a bounded portable transcript derived from machine-readable output, not Claude's private project files.
 - [ ] On abort send `SIGTERM`, wait for `close`, escalate to `SIGKILL` only after the bounded grace period, and do not resolve cancellation while an admitted bridge call is unfinished.
@@ -122,10 +122,10 @@
 - Produce per Harness: `{authenticated:boolean, defaultModel?:{provider,modelId}, models:HarnessModel[], catalogMode:'native'|'default-only', diagnostics?:string}`.
 
 - [ ] For Claude, run `claude auth status --json` and parse only login/provider status. Read the effective default model through Claude's own configuration semantics already exposed by detector configuration; do not inspect credential/keychain files.
-- [ ] Treat Claude's catalog as `default-only` unless the installed CLI exposes a documented machine-readable model-list capability. Include the native default/alias as a selectable verified reference, but do not invent a static Office list or make a paid prompt merely to probe a model.
+- [ ] Treat Claude's catalog as `default-only` unless the installed CLI exposes a documented machine-readable model-list capability. Include the native default/alias as a selectable verified reference, but do not invent a static WeWork list or make a paid prompt merely to probe a model.
 - [ ] For Codex, start `codex app-server --stdio` (or proxy to its existing daemon), initialize the protocol and call its model-list method discovered from the generated schema. Mark the returned current model as default and strip provider endpoints, auth details and unrelated metadata.
 - [ ] If Codex app-server model listing is unavailable, fall back to the effective `model`/`model_provider` identifiers from Codex configuration and report `catalogMode:'default-only'`; installation remains visible but catalog diagnostics explain the limitation.
-- [ ] Merge native models into `available-harness-models.js` as `source:'harness-discovered'`; never persist them in `harness-models.json`. Preserve the existing rule that only SDH accepts Office-managed model connections/defaults.
+- [ ] Merge native models into `available-harness-models.js` as `source:'harness-discovered'`; never persist them in `harness-models.json`. Preserve the existing rule that only SDH accepts WeWork-managed model connections/defaults.
 - [ ] Add tests proving stdout containing credentials/base URLs is reduced to safe identifiers, auth failure does not erase installation evidence, timeouts kill probes, and stale external model records remain hidden.
 - [ ] Commit with `feat(wework): discover Claude and Codex native models`.
 
@@ -164,7 +164,7 @@
 
 - [ ] Build fixture executables that emulate each CLI's exact JSON protocol and MCP client. Run a full assigned task through RuntimeManager: stream text, call `wework_get_task_context`, write a progress record, persist the native session ID, resume, then cancel a second turn.
 - [ ] Verify tenant/team, employee, task and private/group context isolation; forged tool identity, stale assignment, unknown tool and late post-cancel writes must fail.
-- [ ] Verify process environment snapshots contain the run bridge token but no Office model credential, provider URL, unrelated secret variables or copied Harness credentials.
+- [ ] Verify process environment snapshots contain the run bridge token but no WeWork model credential, provider URL, unrelated secret variables or copied Harness credentials.
 - [ ] Run read-only real-CLI probes: `claude auth status --json`, `codex login status`, and Codex app-server initialization/model listing. Validate Claude stream-json itself with the fixture CLI rather than issuing a paid real-model prompt. Record version and capability results without printing account identifiers or tokens.
 - [ ] Run `npm test` and `npm run build`; then launch the packaged app and confirm both cards show accurate availability/readiness, native model/default status and actionable diagnostics.
 - [ ] Update the verification document with exact test totals, platforms, versions, any default-only catalog limitation and the fact that no permission bypass flag is used.
