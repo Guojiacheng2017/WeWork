@@ -9,6 +9,11 @@ const chooseLocalWorkspace = () => {
   return directorySelection;
 };
 contextBridge.exposeInMainWorld("weworkHost", {
+  onCloseLayer: (listener) => {
+    const handler = () => listener();
+    ipcRenderer.on('wework-shell:close-layer', handler);
+    return () => ipcRenderer.removeListener('wework-shell:close-layer', handler);
+  },
   importAttachment: (input) => invoke('importAttachment', input),
   diagnostics: () => invoke('diagnostics'),
   clearDiagnostics: () => invoke('clearDiagnostics'),

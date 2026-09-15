@@ -1,11 +1,14 @@
 import { importAttachment } from './attachments.mjs';
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SidecarSupervisor } from "./sidecar-supervisor.js";
 import { weworkDataLayout } from './data-layout.mjs';
 import { singleFlight } from './single-flight.mjs';
 import { DiagnosticLog } from './diagnostic-log.js';
+import { editingMenu } from './editing-menu.mjs';
+import { desktopWindowChrome } from './window-options.mjs';
+import { applicationMenuTemplate } from './application-menu.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const packagedRuntime = join(process.resourcesPath, "wework-app-runtime", "host-main.cjs");
@@ -88,21 +91,45 @@ ipcMain.handle("wework-host:invoke", async (_event, { method, payload }) => {
   }
 });
 
+let mainWindow = null;
+let quitting = false;
+
+const createMainWindow = async () => {
+  if (mainWindow && !mainWindow.isDestroyed()) return mainWindow;
+  const window = new BrowserWindow({
+    width: 1440,
+    height: 960,
+    backgroundColor: '#f8fafc',
+    ...desktopWindowChrome(process.platform),
+    webPreferences: { preload: join(here, "preload.cjs"), contextIsolation: true, sandbox: true, nodeIntegration: false },
+  });
+  mainWindow = window;
+  window.on('closed', () => { if (mainWindow === window) mainWindow = null; });
+  window.webContents.on('context-menu', (_event, params) => {
+    const template = editingMenu(params);
+    if (template.length) Menu.buildFromTemplate(template).popup({ window });
+  });
+  if (process.env.WEWORK_UI_DEV_URL) await window.loadURL(process.env.WEWORK_UI_DEV_URL);
+  else await window.loadFile(app.isPackaged ? join(process.resourcesPath, "wework-ui", "index.html") : join(here, "..", "..", "dist", "index.html"));
+  return window;
+};
+
 app.whenReady().then(async () => {
   if (!app.isPackaged) {
     const { buildRuntime } = await import('./build-runtime.mjs');
     await buildRuntime();
   }
   await supervisor.start();
-  const window = new BrowserWindow({
-    width: 1440,
-    height: 960,
-    backgroundColor: '#f8fafc',
-    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 18, y: 18 } } : {}),
-    webPreferences: { preload: join(here, "preload.cjs"), contextIsolation: true, sandbox: true, nodeIntegration: false },
-  });
-  if (process.env.WEWORK_UI_DEV_URL) await window.loadURL(process.env.WEWORK_UI_DEV_URL);
-  else await window.loadFile(app.isPackaged ? join(process.resourcesPath, "wework-ui", "index.html") : join(here, "..", "..", "dist", "index.html"));
+  Menu.setApplicationMenu(Menu.buildFromTemplate(applicationMenuTemplate({
+    appName: app.name,
+    platform: process.platform,
+    closeCurrentLayer: () => {
+      const window = BrowserWindow.getFocusedWindow() ?? mainWindow;
+      if (window && !window.isDestroyed()) window.webContents.send('wework-shell:close-layer');
+    },
+  })));
+  await createMainWindow();
+  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) void createMainWindow(); });
 });
-app.on("before-quit", () => { void supervisor.stop(); });
-app.on("window-all-closed", () => app.quit());
+app.on("before-quit", () => { quitting = true; void supervisor.stop(); });
+app.on("window-all-closed", () => { if (process.platform !== 'darwin' && !quitting) app.quit(); });
