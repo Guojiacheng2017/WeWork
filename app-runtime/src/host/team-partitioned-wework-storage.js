@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, openSync, closeSync, readFileSync, renameSync, fsyncSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, openSync, closeSync, statSync, readFileSync, renameSync, fsyncSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 
 const EMPTY = { schemaVersion: 2, teams: [], runtimeProfiles: [], eventCursor: 0 };
@@ -45,7 +45,16 @@ export class TeamPartitionedWeWorkStorage {
   getItem() {
     this.#migrateLegacy();
     if (!existsSync(this.indexPath)) return null;
-    return JSON.stringify(this.#readSnapshot(this.indexPath, (id, file) => this.#teamPath(id, file)));
+    const signature = (path) => { const stat = statSync(path); return `${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`; };
+    if (this.readCache && this.readCache.files.every(([path, stamp]) => signature(path) === stamp)) return this.readCache.value;
+    const files = [[this.indexPath, signature(this.indexPath)]];
+    const value = JSON.stringify(this.#readSnapshot(this.indexPath, (id, file) => {
+      const path = this.#teamPath(id, file);
+      files.push([path, signature(path)]);
+      return path;
+    }));
+    this.readCache = { files, value };
+    return value;
   }
   #readSnapshot(indexPath, teamPath) {
     const index = parse(readFileSync(indexPath, 'utf8'), EMPTY);
@@ -57,6 +66,7 @@ export class TeamPartitionedWeWorkStorage {
     return { schemaVersion: 2, teams, runtimeProfiles: index.runtimeProfiles ?? [], eventCursor: index.eventCursor ?? 0 };
   }
   setItem(_key, value) {
+    this.readCache = undefined;
     const state = parse(value, EMPTY);
     if (!Array.isArray(state.teams) || !Array.isArray(state.runtimeProfiles)) throw new Error('invalid WeWork snapshot');
     if (state.teams.some((team) => !team || typeof team.id !== 'string' || !team.id) || new Set(state.teams.map((team) => team.id)).size !== state.teams.length) throw new Error('invalid or duplicate team id');

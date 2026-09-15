@@ -176,3 +176,16 @@ test('a present but unreadable packaged index fails closed instead of hiding new
   assert.throws(() => canonical.getItem(), /JSON|snapshot/i);
   await assert.rejects(readFile(join(configRoot, 'wework-index.json'), 'utf8'), (error) => error.code === 'ENOENT');
 });
+
+test('read cache observes external index writes and in-place team edits', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'wework-cache-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const storage = new TeamPartitionedWeWorkStorage(root);
+  storage.setItem('', state([{ id: 'a', name: 'first' }]));
+  assert.equal(storage.getItem(), storage.getItem());
+  const other = new TeamPartitionedWeWorkStorage(root);
+  other.setItem('', state([{ id: 'a', name: 'external replacement' }]));
+  assert.equal(JSON.parse(storage.getItem()).teams[0].name, 'external replacement');
+  const index = JSON.parse(await readFile(join(root, 'wework-index.json'), 'utf8'));
+  await writeFile(join(root, 'teams', safeTeamDirectory('a'), index.teams[0].file), JSON.stringify({ id: 'a', name: 'in-place edit with a different size' }));
+  assert.equal(JSON.parse(storage.getItem()).teams[0].name, 'in-place edit with a different size');
+});

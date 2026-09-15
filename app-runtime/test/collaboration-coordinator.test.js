@@ -168,3 +168,31 @@ test('completion during checkpoint read is not mistaken for an interrupted sessi
   const delivery = (await wework.api.snapshot()).teams[0].collaborationDeliveries.find(item => item.id === message.deliveryId);
   assert.equal(delivery.status, 'succeeded');
 });
+
+test('a queued delivery records what it is waiting for', async (t) => {
+  const { wework, team, coordinator, specs } = await setup(t);
+  await wework.api.postGroupMessage(team.id, { text: 'First', requestId: 'first' });
+  await coordinator.drain();
+  assert.equal(specs.length, 1);
+
+  await wework.api.postGroupMessage(team.id, { text: 'Second', requestId: 'second' });
+  await coordinator.drain(); await coordinator.drain();
+
+  const deliveries = (await wework.api.snapshot()).teams[0].collaborationDeliveries;
+  const queued = deliveries.find((delivery) => delivery.status === 'queued');
+  assert.ok(queued, 'the second delivery stays queued while the first run is active');
+  assert.match(queued.queueReason, new RegExp(specs[0].id));
+  assert.equal(deliveries.find((delivery) => delivery.status === 'running').queueReason, undefined);
+});
+
+test('a queued delivery blocked by an unresolved peer names that delivery', async (t) => {
+  const { wework, team, target, coordinator } = await setup(t);
+  const first = await wework.api.postGroupMessage(team.id, { text: 'First', requestId: 'first', recipientId: target.id });
+  await wework.api.reserveGroupDelivery(team.id, first.deliveryId, 'live-run');
+  await wework.api.postGroupMessage(team.id, { text: 'Second', requestId: 'second', recipientId: target.id });
+  await coordinator.drain(); await coordinator.drain();
+
+  const queued = (await wework.api.snapshot()).teams[0].collaborationDeliveries.find((delivery) => delivery.status === 'queued');
+  assert.ok(queued, 'a peer delivery in flight keeps the next one queued');
+  assert.match(queued.queueReason, new RegExp(first.deliveryId));
+});

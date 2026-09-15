@@ -53,3 +53,17 @@
 生产边界：这是可由 Host 显式调用的执行模块，尚未挂到聊天入口、UI 或新的 Host endpoint；不会默默启用后台自动执行。现有 completeCurrent 只协调选中图，因此模块要求目标图当前被选中，切图时拒绝推进；多图后台推进需要后续服务改造。四档授权/Adaptive/ARC 不在本次实现内。最终验收与阶段完成分离，明确人工验收允许推进但不会由执行器生成。
 
 本轮实测加载的是添加“已验收也可推进”分支前的执行器；该后续分支由新增回归测试覆盖，本轮实际全部走 submitted 路径，未重跑相同模型样本。
+
+
+## Host background supervisor integration — 2026-09-12
+
+Run: `runs/production-2026-09-12T01-44-53-229Z`. The adapter prepares the original sample and source registry, then calls the production service `startWorkflow` and reads `getWorkflowExecution`. It never calls an executor tick itself; the background Host supervisor dispatches and advances the graph.
+
+- Real Pi executions: 5/5 completed; all deliverables submitted, none automatically accepted.
+- Full upstream document content and source node/work/document IDs verified for all dependency bindings.
+- All five required question headings present; no official judge or claim of scientific correctness.
+- Elapsed: 122743 ms. Reported aggregate tokens: 372878, including cached usage; not unique tokens or normalized task difficulty.
+- Local evidence: `report.json`, `workflow-executions.json`, `events.jsonl`, `tool-calls.json`, `dag.json`, and `stage-1.md` through `stage-5.md` in that run directory.
+- This exercises the production service/supervisor/executor with real Pi, but does not exercise desktop UI clicks or the HTTP transport.
+
+The suite additionally covers enrollment persistence, pause/resume, background execution without a renderer, repeated Start, legacy renderer-run migration refusal, and existing failed/cancelled/uncertain-run fences. UI rendering and full four-mode Adaptive policy remain separate acceptance work.

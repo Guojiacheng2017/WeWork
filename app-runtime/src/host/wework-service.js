@@ -61,7 +61,7 @@ const uiMethods = new Set([
   'createWork', 'assignWork', 'updateWork', 'cancelWork', 'completeCurrent', 'returnCurrent',
   'acknowledgeEmployeeError', 'getWorkflow', 'saveWorkflow', 'createWorkflow', 'selectWorkflow', 'listWorkflowReferences', 'configureWorkType', 'startWorkflow', 'sendMessage', 'sendAssistantMessage', 'sendTeamMessage',
   'getWorkContext', 'readTaskField', 'readWorkDocument', 'saveWorkDocument', 'reportProgress', 'submitDeliverable',
-  'reviewDeliverable', 'getWorkRecords', 'postGroupMessage', 'retryGroupDelivery', 'cancelGroupDelivery', 'requestHandoff', 'decideHandoff', 'getGroupContext', 'readGroupMessage',
+  'reviewDeliverable', 'getWorkRecords', 'postGroupMessage', 'retryGroupDelivery', 'cancelGroupDelivery', 'noteGroupDelivery', 'requestHandoff', 'decideHandoff', 'getGroupContext', 'readGroupMessage',
   'replaceCollaborationDatabase', 'configureTeamModules', 'createCollaborationWorkItem', 'updateCollaborationWorkItem', 'deleteCollaborationWorkItem', 'deleteCollaborationDatabase',
 ]);
 
@@ -82,7 +82,17 @@ export class WeWorkService {
     const teams = (await this.api.snapshot()).teams;
     await this.#initializeWorkspaces(teams);
   }
+  projectWorkflowExecutions(snapshot) {
+    return { ...snapshot, teams: snapshot.teams.map(team => ({ ...team, workflowExecutions: this.workflowSupervisor?.snapshot(team.id) ?? [] })) };
+  }
   async call(method, args = []) {
+    if (this.workflowSupervisor && ['startWorkflow', 'getWorkflowExecution', 'pauseWorkflowExecution', 'resumeWorkflowExecution'].includes(method)) {
+      const count = method === 'startWorkflow' ? 1 : 2;
+      if (!Array.isArray(args) || args.length !== count || !args.every(value => typeof value === 'string' && value.length)) throw new Error('Invalid workflow execution request');
+      if (method === 'startWorkflow') return this.workflowSupervisor.start(args[0]);
+      return this.workflowSupervisor.control(args[0], args[1], method === 'getWorkflowExecution' ? undefined : method === 'resumeWorkflowExecution');
+    }
+
     if (method === 'snapshot' && this.coordinator?.runtime.get) {
       const snapshot = await this.api.snapshot(...args); let changed=false;
       for (const team of snapshot.teams) for (const employee of team.employees) {
@@ -96,7 +106,7 @@ export class WeWorkService {
         }
         changed=true;
       }
-      return changed?this.api.snapshot(...args):snapshot;
+      return this.projectWorkflowExecutions(changed ? await this.api.snapshot(...args) : snapshot);
     }
     if (method === 'sendWorkbenchTab' || method === 'stopWorkbenchTab') {
       const sending = method === 'sendWorkbenchTab';
@@ -129,6 +139,9 @@ export class WeWorkService {
       if (active) {
         const result = await this.coordinator.runtime.steerEmployee(employeeId, text, {sessionId:session.id});
         if (result.accepted) { await this.api.sendMessage(employeeId, text, tabId); return {steered:true}; }
+      }
+      if (tabId !== 'private' && this.workflowSupervisor?.owns(team.id, employee.currentWorkItem.workflowId)) {
+        return this.workflowSupervisor.continueWork(team.id, employee.currentWorkItem.workflowId, employeeId, tabId, text);
       }
       // Admission and session routing are checked again by startRun.
       await this.api.sendMessage(employeeId, text, tabId);
@@ -233,16 +246,20 @@ export class WeWorkService {
       void initialization.catch((error) => console.error('Employee workspace initialization failed:', error));
     }
     if (this.workspaceLayout && ['bootstrap', 'importLocalState'].includes(method) && result?.imported) await this.reconcileWorkspaces();
+    if (method === 'snapshot') return this.projectWorkflowExecutions(result);
     if (['postGroupMessage', 'retryGroupDelivery'].includes(method)) void this.coordinator?.drain().catch(() => {});
     return result;
   }
-  async startRun(spec, runtime) {
+  async startRun(spec, runtime, { workflowExecution = false } = {}) {
     const state = await this.api.snapshot();
     const deliveryId = spec.wework?.deliveryId ?? spec.deliveryId;
     const employeeId = deliveryId ? state.teams.flatMap((t) => t.collaborationDeliveries ?? []).find((d) => d.id === deliveryId)?.employeeId : spec.employeeId;
     if (!employeeId) throw new Error('run recipient not found');
     const start = async () => {
       const prepared = await this.prepare(spec);
+      const team = (await this.api.snapshot()).teams.find(t => t.employees.some(e => e.id === employeeId));
+      const work = team?.employees.find(e => e.id === employeeId)?.currentWorkItem;
+      if (!workflowExecution && work?.id === prepared.workId && this.workflowSupervisor?.owns(team.id, work.workflowId)) throw new Error('这项工作由团队统一推进，请在任务会话中发送补充指令，或点击“继续工作”。');
       await this.api.setEmployeeActivity(employeeId,'working',prepared.wework.group ? '正在处理群聊消息' : prepared.wework.chat ? '正在处理对话消息' : prepared.work.title,prepared.id);
       await this.api.setSessionActivity(employeeId, prepared.wework.displaySessionId, {state:'working', detail:prepared.work.title, runId:prepared.id});
       runtime.journal?.publish({type:'wework.updated'});

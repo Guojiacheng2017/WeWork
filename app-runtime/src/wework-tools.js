@@ -86,7 +86,7 @@ export function createWeWorkTools(wework, spec, runSignal) {
       let result;
       switch (definition.name) {
         case 'wework_get_dag': result = team.workflow ?? { version: 0, nodes: [] }; break;
-        case 'wework_start_dag': result = await wework.api.startWorkflow(team.id); break;
+        case 'wework_start_dag': result = await wework.call('startWorkflow', [team.id]); break;
         case 'wework_list_workflow_references': result = await wework.api.listWorkflowReferences(team.id, input.workTypeId); break;
         case 'wework_create_workflow': result = await wework.api.createWorkflow(team.id, { name: input.name, temporary: true, workTypeId: input.workTypeId, sourceWorkflowId: input.sourceWorkflowId, workId: input.workId }); break;
         case 'wework_configure_work_type': result = await wework.api.configureWorkType(team.id, input); break;

@@ -1,7 +1,9 @@
+import { checkProductionAdmission } from './host/production-admission.js';
 import { executePiCommand } from './pi-command.js';
 import { WeWorkService } from './host/wework-service.js';
 import { TeamPartitionedWeWorkStorage, safeTeamDirectory } from './host/team-partitioned-wework-storage.js';
 import { createWeWorkTools } from './wework-tools.js';
+import { WorkflowSupervisor } from './host/workflow-supervisor.js';
 import { CollaborationCoordinator } from './host/collaboration-coordinator.js';
 import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
@@ -66,7 +68,7 @@ const runtime = new RuntimeManager({
   execute: withVaultCredential(vault, async (spec, options) => {
     const harnessId=spec.runtimeProfile.adapter==='smalldash'?'smalldashharness':spec.runtimeProfile.adapter;
     if(!(await harnessPolicy.get()).allowedHarnesses.includes(harnessId)) throw new Error('Harness is not allowed on this device');
-    return executeHarness(spec,{...options,dataRoot:runtimeDataRoot,legacyDataRoots:[weworkRoot,legacyDataRoot],migrationQuarantineRoot:join(configRoot,'migration-quarantine'),sdh,bundledSkillRoots:weworkSkillRoots,extensionPath:piExtensionPath,windowsCommandWrapperPath,tools:spec.wework?createWeWorkTools(wework,spec,options.signal):[]});
+    return executeHarness(spec,{...options,checkNativeTool:(name)=>checkProductionAdmission(wework,spec,name),dataRoot:runtimeDataRoot,legacyDataRoots:[weworkRoot,legacyDataRoot],migrationQuarantineRoot:join(configRoot,'migration-quarantine'),sdh,bundledSkillRoots:weworkSkillRoots,extensionPath:piExtensionPath,windowsCommandWrapperPath,tools:spec.wework?createWeWorkTools(wework,spec,options.signal):[]});
   }),
   onEvents: (spec, events) => spec.wework ? wework.recordEvents(spec, events) : undefined,
   onFinish: (spec, result, error) => spec.wework ? wework.finish(spec, result, error) : undefined,
@@ -74,6 +76,8 @@ const runtime = new RuntimeManager({
 wework.isEmployeeActive = (employeeId) => [...runtime.active.values()].some((run) => run.employeeId === employeeId);
 const coordinator = new CollaborationCoordinator({wework,runtime});
 wework.attachCoordinator(coordinator);
+const workflows = new WorkflowSupervisor({wework, runtime, path: join(configRoot, 'workflow-executions.json')});
+wework.workflowSupervisor = workflows;
 const listHarnessModels = async () => {
   const catalog = await listAvailableHarnessModels({ detector: harnesses, sdh });
   const preferred = await harnessModelDefaults.get();
@@ -125,7 +129,7 @@ const services = {
   runtime: { steerEmployee: (id,message) => runtime.steerEmployee(id,message), start: async (spec) => spec.weworkManaged ? wework.startRun(spec,runtime) : wework.startExternalRun(spec,runtime), get: (id) => runtime.get(id), cancel: (id) => runtime.cancelAndWait(id) },
 };
 const host = createHostServer({ token, services, journal });
-wework.reconcileWorkspaces().then(()=>coordinator.recover()).then(()=>host.listen(port)).then(() => {
+wework.reconcileWorkspaces().then(()=>coordinator.recover()).then(()=>workflows.recover()).then(()=>host.listen(port)).then(() => {
   console.log(JSON.stringify({ type: "wework-host.ready", url: host.url }));
 }).catch((error) => {
   console.error(`WeWork Host failed: ${error.code ?? "HOST_START_FAILED"}`);
@@ -134,6 +138,7 @@ wework.reconcileWorkspaces().then(()=>coordinator.recover()).then(()=>host.liste
 let stopping=false;
 const shutdown=async()=>{
   if(stopping)return;stopping=true;
+  await workflows.close();
   await coordinator.close();
   await Promise.allSettled([...runtime.active.keys()].map(id=>runtime.cancelAndWait(id)));
   process.exit(0);

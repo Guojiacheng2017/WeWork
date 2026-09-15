@@ -61,3 +61,10 @@ The Host executor uses durable work-derived run identities. Only a succeeded run
 Current limitation: the selected workflow must match the explicit target. Existing completion reconciliation is selected-graph scoped, so this executor refuses to advance another graph. Concurrent multi-graph/background view switching requires a separate service change before UI end-to-end claims. The exported method is `WorkflowExecutor.tick(teamId, workflowId)`; callers must supply the existing authoritative service/Runtime and authorize the workflow scope. This is not a four-mode permission implementation.
 
 Production outputs are in `runs/production-*`: `status.json`, actual `dag.json`, `wework.json`, Runtime/native traces, five submitted Markdown artifacts and `report.json`. Completion checks re-open persisted business state, compare full upstream content and source identities, and distinguish stage completion from acceptance. The earlier `verify-run.mjs` expects the original smoke schema and must not be used for these production reports.
+
+### Follow-up: graph selection independence
+
+The later graph-scoping fix removes the selected-graph restriction above: completion/cancellation/return now resolve the work's owning workflow, and WorkflowExecutor reads its explicit target without changing UI selection. Switching-view regressions cover all three operations. This does not activate a background scheduler or replace the renderer's existing LocalRunScheduler; that migration is tracked in `docs/product/2026-09-12-dag-ui-runtime-contract.md`.
+
+
+`run-production.mjs` now uses the production Host background supervisor. It prepares source documents before explicit enrollment, starts through `WeWorkService.call('startWorkflow', ...)`, and only polls execution status. It does not drive progression. See RESULTS.md for the real background-run evidence and the UI/official-scoring limits.

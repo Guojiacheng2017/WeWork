@@ -35,6 +35,18 @@ test('bridges remote SDH tool calls back to the local WeWork tool executor', asy
   assert.equal(result.mutated,true);
 });
 
+test('sends the persona on the init channel so it is not restated in every turn', async () => {
+  const calls=[]; const encoder=new TextEncoder();
+  const body=new ReadableStream({start(controller){controller.enqueue(encoder.encode('event: text\ndata: {"content":"ok"}\n\nevent: done\ndata: {}\n\n'));}});
+  const sdh={connection:{get:async()=>({baseUrl:'http://gpu:23334'})},fetch:async()=>new Response(body),request:async(path,init={})=>{calls.push({path,body:init.body&&JSON.parse(init.body)});if(path.endsWith('/history'))return {messages:[]};return {accepted:true};}};
+  await executeRemoteSmalldashRun({employeeId:'e1',runtimeProfile:{systemPrompt:'PERSONA-MARKER',adapter:'smalldash'},employee:{displayName:'A',roleName:'R',skills:[]},workspace:{kind:'local',rootPath:process.cwd()},session:{id:'session-1'},work:{title:'T',goal:'G'}},{sdh,bundledSkillRoots:[]});
+  const init=calls.find(call=>call.path==='/api/chat/init').body;
+  const message=calls.find(call=>call.path.startsWith('/api/chat/wework-')).body.message;
+  assert.match(init.persona,/PERSONA-MARKER/);
+  assert.deepEqual(init.businessSkills,[]);
+  assert.doesNotMatch(message,/PERSONA-MARKER/);
+});
+
 test('rejects a textual success when a requested DAG mutation never called the write tool', async () => {
   const encoder=new TextEncoder();
   const body=new ReadableStream({start(controller){controller.enqueue(encoder.encode('event: text\ndata: {"content":"DAG 已完成"}\n\nevent: done\ndata: {}\n\n'));}});

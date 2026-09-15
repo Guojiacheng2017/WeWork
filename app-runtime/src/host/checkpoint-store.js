@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 const safe = (id) => id.replace(/[^a-zA-Z0-9._-]/g, "_");
 export class CheckpointStore {
@@ -7,6 +7,17 @@ export class CheckpointStore {
   async readJson(path) { try { return JSON.parse(await readFile(path, "utf8")); } catch (error) { if (error.code === "ENOENT") return null; throw error; } }
   runPath(id) { return join(this.root, `run-${safe(id)}.json`); }
   checkpointPath(id) { return join(this.root, `checkpoint-${safe(id)}.json`); }
+  async runsForWork(workIds) {
+    let files;
+    try { files = await readdir(this.root); } catch (error) { if (error.code === 'ENOENT') return []; throw error; }
+    const wanted = new Set(workIds), runs = [];
+    for (const file of files) {
+      if (!file.startsWith('run-') || !file.endsWith('.json')) continue;
+      const run = await this.readJson(join(this.root, file));
+      if (run && wanted.has(run.workId)) runs.push(run);
+    }
+    return runs;
+  }
   putRun(run) { return this.writeJson(this.runPath(run.id), run); }
   getRun(id) { return this.readJson(this.runPath(id)); }
   putCheckpoint(employeeId, checkpoint) { return this.writeJson(this.checkpointPath(employeeId), checkpoint); }

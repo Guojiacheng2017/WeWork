@@ -9,7 +9,7 @@ import { createWeWorkTools } from '../../app-runtime/src/wework-tools.js';
 import { executePiRun } from '../../app-runtime/src/pi-runtime.js';
 import { RuntimeManager } from '../../app-runtime/src/host/runtime-manager.js';
 import { CheckpointStore } from '../../app-runtime/src/host/checkpoint-store.js';
-import { WorkflowExecutor } from '../../app-runtime/src/host/workflow-executor.js';
+import { WorkflowSupervisor } from '../../app-runtime/src/host/workflow-supervisor.js';
 const here=dirname(fileURLToPath(import.meta.url));
 const bytes=await readFile(join(here,'samples/research-001.json'));
 const sample=JSON.parse(bytes),provenance=JSON.parse(await readFile(join(here,'samples/provenance.json')));
@@ -37,12 +37,15 @@ const manager=new RuntimeManager({store,journal:{publish(event){eventWrites=even
  const timeout=setTimeout(()=>manager.cancel(spec.id).catch(()=>{}),180000);
  try{return await executePiRun(spec,{...options,tools,extensionPath:resolve(here,'../../app-runtime/src/pi-wework-extension.mjs'),env:{PI_CODING_AGENT_SESSION_DIR:join(root,'native-sessions')},spawnProcess:(file,args,opts)=>spawn(file,[...args,'--no-builtin-tools','--no-extensions','--no-skills','--no-prompt-templates','--no-context-files'],opts)});}finally{clearTimeout(timeout);}
 },onFinish:(...args)=>service.finish(...args)});
-const executor=new WorkflowExecutor({wework:service,runtime:manager});
-const report={mode:'production workflow APIs and Host executor; adapted benchmark; no UI/official score',root,provenance,workflowId:workflow.id,stages:[],checks:{}};
+const supervisor=new WorkflowSupervisor({wework:service,runtime:manager,path:join(root,'workflow-executions.json')});
+service.workflowSupervisor=supervisor;
+const report={mode:'production workflow APIs and background Host supervisor; adapted benchmark; no UI/official score',root,provenance,workflowId:workflow.id,stages:[],checks:{}};
 let last='';const started=Date.now();
 try{
+ await service.call('startWorkflow',[team.id]);
+ await supervisor.recover();
  while(true){
-  const status=await executor.tick(team.id,workflow.id);
+  const status=await service.call('getWorkflowExecution',[team.id,workflow.id]);
   const snapshot=await service.api.snapshot();const graph=snapshot.teams.find(t=>t.id===team.id).workflow;
   const states=graph.nodes.map(n=>n.status).join(',');if(states!==last){console.log(states);last=states;}
   await writeFile(join(root,'status.json'),JSON.stringify(status,null,2));
@@ -66,6 +69,7 @@ try{
  report.checks={productionWorkflowCompleted:finalTeam.workflow.nodes.every(n=>n.status==='completed'),fiveEmployees:report.stages.length===5,sourceProvenanceVerified:true,noAutoAcceptance:true,fiveQuestionHeadings:[1,2,3,4,5].every(n=>exports.at(-1).content.includes(`[Question ${n}]`))};assert.ok(Object.values(report.checks).every(Boolean));report.ok=true;
 }catch(error){report.ok=false;report.error=error.message;process.exitCode=1;}
 finally{
+ await supervisor.close();
  for(const id of manager.active.keys())await manager.cancel(id);
  await Promise.all([...manager.active.values()].map(r=>r.done));await eventWrites;
  report.elapsedMs=Date.now()-started;await writeFile(join(root,'tool-calls.json'),JSON.stringify(calls,null,2));await writeFile(join(root,'report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));

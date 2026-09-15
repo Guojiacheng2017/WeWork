@@ -2,8 +2,18 @@ import { createHash } from 'node:crypto';
 import { buildWorkPrompt } from './runtime.js';
 import { loadEmployeeSkills } from './skill-loader.js';
 
+/**
+ * WeWork's persona layer. Session-stable context belongs in the system prompt:
+ * SDH composes it once per context change, so a long-running group session does
+ * not accumulate one full persona copy per delivery in its message history.
+ * Assigned WeWork skills travel separately via `businessSkills`.
+ */
 export function buildRemoteSdhPersona(spec, skills) {
-  return [...(spec.weworkPrompts ?? []).map((layer) => `[${layer.scope} WEWORK.md]\n${layer.content}`), spec.runtimeProfile.systemPrompt, `Employee: ${spec.employee.displayName}`, `Role: ${spec.employee.roleName}`, 'WeWork business skills are session instructions. SDH atomic skills remain owned and selected by smalldashharness.', ...skills.loaded.map((skill) => `Assigned WeWork skill ${skill.id}:\n${skill.content}`), skills.unloaded.length ? `WeWork skills not loaded: ${skills.unloaded.map((skill) => skill.name).join(', ')}` : ''].filter(Boolean).join('\n\n');
+  return [...(spec.weworkPrompts ?? []).map((layer) => `[${layer.scope} WEWORK.md]\n${layer.content}`), spec.runtimeProfile.systemPrompt, `Employee: ${spec.employee.displayName}`, `Role: ${spec.employee.roleName}`, 'WeWork business skills are session instructions. SDH atomic skills remain owned and selected by smalldashharness.', skills.unloaded.length ? `WeWork skills not loaded: ${skills.unloaded.map((skill) => skill.name).join(', ')}` : ''].filter(Boolean).join('\n\n');
+}
+
+export function buildRemoteSdhBusinessSkills(skills) {
+  return skills.loaded.map(({ id, name, content }) => ({ id, name, content }));
 }
 
 function requiresDagWrite(spec, tools) {
@@ -18,7 +28,16 @@ export async function executeRemoteSmalldashRun(spec, options = {}) {
   const nativeSessionId = spec.session?.nativeSessionId ?? `wework-${createHash('sha256').update(JSON.stringify([spec.employeeId, spec.session?.id])).digest('hex')}`;
   const skills = await loadEmployeeSkills(spec.employee.skills, { workspaceRoot: spec.workspace?.rootPath, skillRoots: spec.skillRoots ?? [], bundledRoots: options.bundledSkillRoots ?? [] });
   const tools = options.tools ?? [];
-  await options.sdh.request('/api/chat/init', { method: 'POST', body: JSON.stringify({ sessionId: nativeSessionId, tools: tools.map(({ name, description, parameters, mutating }) => ({ name, description, parameters, mutating: mutating === true })) }) });
+  // Persona and business skills ride the init channel so SDH composes them into
+  // the system prompt once. Only the current turn goes in the chat message —
+  // stapling the persona onto every message grew the session without bound and
+  // pushed early group history out of the context window.
+  await options.sdh.request('/api/chat/init', { method: 'POST', body: JSON.stringify({
+    sessionId: nativeSessionId,
+    persona: buildRemoteSdhPersona(spec, skills),
+    businessSkills: buildRemoteSdhBusinessSkills(skills),
+    tools: tools.map(({ name, description, parameters, mutating }) => ({ name, description, parameters, mutating: mutating === true })),
+  }) });
   const { baseUrl } = await options.sdh.connection.get();
   const streamAbort = new AbortController();
   const abort = () => { streamAbort.abort(); void options.sdh.request(`/api/cancel/${encodeURIComponent(nativeSessionId)}`, { method: 'POST' }).catch(() => {}); };
@@ -52,7 +71,7 @@ export async function executeRemoteSmalldashRun(spec, options = {}) {
       }
       if (event === 'tool_result') options.emit?.({ type: 'assistant.activity', activity: 'tool', text: `${data.name ?? '工具'} ${data.ok === false ? '失败' : '完成'}` });
     });
-    const message = `${buildRemoteSdhPersona(spec, skills)}\n\n${buildWorkPrompt(spec)}`;
+    const message = buildWorkPrompt(spec);
     await options.sdh.request(`/api/chat/${encodeURIComponent(nativeSessionId)}`, { method: 'POST', body: JSON.stringify({ message }), signal: options.signal });
     await finished;
     const history = await options.sdh.request(`/api/chat/${encodeURIComponent(nativeSessionId)}/history`);

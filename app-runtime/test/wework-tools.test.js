@@ -166,6 +166,8 @@ test('Session permission mode scopes injected tools and rejects mid-run changes'
   const supervised = createWeWorkTools(wework, supervisedSpec);
   assert.equal(supervised.some((tool) => tool.name === 'wework_get_task_context'), true);
   assert.equal(supervised.some((tool) => tool.name === 'wework_save_output'), false);
+  assert.equal(supervised.some((tool) => tool.name === 'wework_start_dag'), false);
+  assert.equal(supervised.some((tool) => tool.name === 'wework_save_dag'), false);
 
   await updateMode('auto');
   const automaticSpec = await wework.prepare({ id: 'permission-auto', employeeId, workId: work.id });
