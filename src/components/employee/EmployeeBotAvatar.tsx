@@ -1,6 +1,7 @@
 import { employeeFrameColor } from '../../domain/employeeColor';
 import React from 'react';
 import { EmployeeBot, employeeStateForStatus, type EmployeeBotStatus } from './EmployeeBot';
+import { useReducedEffects } from '../../hooks/useReducedEffects';
 
 export interface EmployeeBotAvatarProps {
   size?: number;
@@ -24,6 +25,7 @@ export const EmployeeBotAvatar: React.FC<EmployeeBotAvatarProps> = ({
   className = '',
   paused = false,
 }) => {
+  const reducedEffects = useReducedEffects();
   return (
     <div
       className={`relative inline-flex items-center justify-center select-none transition-all duration-300 ${className} ${
@@ -46,7 +48,7 @@ export const EmployeeBotAvatar: React.FC<EmployeeBotAvatarProps> = ({
         frameColor={frameColor ?? employeeFrameColor(bodyColor)}
         effectColor={frameColor ?? employeeFrameColor(bodyColor)}
         eyeColor="#ffffff"
-        paused={paused}
+        paused={paused || reducedEffects}
       />
     </div>
   );

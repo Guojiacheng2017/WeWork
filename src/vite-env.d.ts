@@ -5,7 +5,7 @@ import type { LoopbackWeWorkHost, WeWorkHost, RuntimeCoordinator } from './runti
 
 declare global {
   interface Window {
-    weworkHost?: WeWorkHost | LoopbackWeWorkHost;
+    weworkHost?: (WeWorkHost | LoopbackWeWorkHost) & { onCloseLayer?: (listener: () => void) => () => void };
     runtimeCoordinator?: RuntimeCoordinator;
     collaborationHarness?: CollaborationHarness;
   }

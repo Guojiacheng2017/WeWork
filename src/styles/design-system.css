@@ -47,6 +47,16 @@ body { color: var(--ww-text); background: var(--ww-canvas); }
   outline: 2px solid var(--ww-focus);
   outline-offset: 3px;
 }
+/* Keep action icons legible throughout the app even when legacy utility classes
+   request a smaller glyph. Larger illustrations and nested avatars are unaffected. */
+:where(button, [role="button"]) > svg:not([data-preserve-size]) {
+  min-width: 18px;
+  min-height: 18px;
+}
+.ww-button[data-size="icon"] {
+  width: 36px;
+  height: 36px;
+}
 [data-ui="field"] {
   min-width: 0;
   min-height: var(--ww-control-height);
@@ -181,3 +191,24 @@ textarea[data-ui="field"] { resize: vertical; }
 .ww-conversation-layout { background:var(--ww-canvas); }
 .ww-conversation-layout > aside, .ww-conversation-layout > section { background:transparent; }
 .ww-conversation-layout .ww-employee-control[aria-pressed="true"] { background:var(--ww-muted); color:var(--ww-accent); }
+
+/* A chat composer grows with text, never with the surrounding transcript. */
+#team-drawer-chat .ww-composer-surface {
+  height: auto;
+  min-height: 0;
+}
+#team-drawer-chat .ww-composer-surface textarea[data-ui="field"] {
+  display: block;
+  min-height: 28px;
+  max-height: 128px;
+  overflow-y: auto;
+}
+
+/* The round-table drawer composer follows the card's inner edge. */
+#team-drawer-chat form { padding: 0 8px 8px; }
+#team-drawer-chat .ww-composer-surface { padding: 8px 12px; }
+#team-drawer-chat .composer-toolbar { margin-top: 4px; }
+#team-drawer-chat .composer-toolbar > div:first-child { flex: 1; }
+#team-drawer-chat .composer-toolbar > div:first-child > button { flex-shrink: 0; }
+#team-drawer-chat .composer-toolbar > div:first-child > div { min-width: 0; }
+#team-drawer-chat .composer-toolbar span { overflow-wrap: anywhere; }

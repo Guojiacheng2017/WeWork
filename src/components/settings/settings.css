@@ -1,0 +1,51 @@
+/* Device settings, from the account entry through its configuration panels. */
+.ww-account .ww-account-trigger { border-radius: 999px; padding: 8px; gap: 10px; }
+.ww-account[open] .ww-account-trigger { background: #f1f5f9; }
+.ww-account .ww-account-menu { width: 264px; max-width: calc(100vw - 24px); right: auto; padding: 8px; border-radius: 20px; border-color: #e2e8f0; box-shadow: 0 12px 40px -12px rgb(15 23 42 / 22%); animation: settings-enter 150ms ease-out; }
+.ww-account-heading { display: flex; align-items: center; gap: 10px; padding: 10px 8px 16px; margin-bottom: 4px; border-bottom: 1px solid #f1f5f9; }
+.ww-account-avatar { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: #f1f5f9; color: #475569; }
+.ww-account-heading strong { display: block; color: #0f172a; font-size: 13px; }
+.ww-account-heading div > span { display: block; font-size: 11px; color: #64748b; margin-top: 2px; }
+.ww-account-status { margin-left: auto; width: 7px; height: 7px; border-radius: 50%; background: #10b981; }
+.ww-account-menu [data-ui=button] { min-height: 40px; border: 0; border-radius: 12px; box-shadow: none; background: transparent; padding: 9px 12px; font-weight: 500; gap: 12px; }
+.ww-account-menu [data-ui=button]:hover { background: #f1f5f9; color: #0f172a; }
+.ww-account-footer { padding: 7px 12px 5px; color: #94a3b8; font-size: 11px; }
+.ww-settings { border-radius: 24px; max-width: 1000px; box-shadow: 0 24px 80px -24px rgb(15 23 42 / 30%); }
+.ww-settings-header { height: 76px; padding: 0 28px; }
+.ww-settings-header h3 { font-size: 18px; }
+.ww-settings-header [data-ui=button] { border-radius: 50%; }
+.ww-settings-nav { width: 208px; padding: 20px 14px; background: #f8fafc; }
+.ww-settings-nav [data-ui=field] { border: 1px solid #e2e8f0; border-radius: 999px; background: white; }
+.ww-settings-nav nav [data-ui=button] { min-height: 42px; border: 0; border-radius: 999px; font-size: 13px; font-weight: 500; box-shadow: none; }
+.ww-settings-nav nav [aria-current=page] { background: #e8eef4; color: #0f172a; font-weight: 600; }
+.ww-settings-content { scrollbar-gutter: stable; background: white; }
+.ww-settings-content > div { padding: 28px 30px; }
+.ww-settings-content h3 { font-size: 20px; letter-spacing: -.02em; }
+.ww-settings-content p { line-height: 1.7; }
+.ww-settings-content p.text-slate-400 { color: #64748b; }
+.ww-settings-content > div > section { border-radius: 16px; border-color: #e2e8f0; box-shadow: none; }
+.ww-settings-row { gap: 24px; padding: 20px; }
+.ww-settings [role=switch] { flex-shrink: 0; }
+.ww-settings-content [data-ui=button] { border-radius: 999px; }
+.ww-settings-content article { border-radius: 16px; }
+.ww-harness-grid { gap: 12px; }
+.ww-harness-grid article { padding: 16px; min-width: 0; }
+@keyframes settings-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 720px) {
+  .ww-settings-backdrop { padding: 40px 12px 12px; }
+  .ww-settings { height: calc(100dvh - 52px); border-radius: 18px; }
+  .ww-settings > div { flex-direction: column; }
+  .ww-settings-header { height: 68px; padding: 0 20px; }
+  .ww-settings-nav { width: 100%; padding: 12px; max-height: none; border-right: 0; border-bottom: 1px solid #e2e8f0; }
+  .ww-settings-nav > p, .ww-settings-nav > div { display: none; }
+  .ww-settings-nav > label { margin-bottom: 8px; }
+  .ww-settings-nav nav { display: flex; gap: 4px; overflow-x: auto; }
+  .ww-settings-nav nav [data-ui=button] { flex-shrink: 0; width: auto; margin: 0; white-space: nowrap; }
+  .ww-settings-content > div { padding: 20px; }
+  .ww-harness-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) { .ww-account .ww-account-menu { animation: none; } }
+.ww-settings-header [data-ui=button] { padding: 0; display: grid; place-items: center; }
+.ww-settings-header [data-ui=button] svg { width: 16px; height: 16px; flex-shrink: 0; }
+.ww-settings-nav nav [data-ui=button] { justify-content: flex-start; padding-left: 16px; }
+.ww-harness-grid article p { overflow-wrap: anywhere; }

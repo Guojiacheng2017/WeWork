@@ -32,14 +32,13 @@ type ProjectionFrame = { projections: EmployeeProjection[]; settled: boolean; ey
 
 const ADD_EMPLOYEE_SEAT: StageSeat = { key: "add-employee", kind: "add" };
 
-function useReducedMotion() {
-  const [reduced, setReduced] = useState(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+function useSystemReducedMotion() {
+  const [reduced, setReduced] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   useEffect(() => {
-    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const query = window.matchMedia('(prefers-reduced-motion: reduce)');
     const update = () => setReduced(query.matches);
-    update();
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
+    query.addEventListener('change', update);
+    return () => query.removeEventListener('change', update);
   }, []);
   return reduced;
 }
@@ -168,7 +167,7 @@ export function WeWorkStage3D({
   draggedWork?: WorkItem | null;
   onAssignWork?: (work: WorkItem, employee: WeWorkEmployee) => void;
 }) {
-  const reducedMotion = useReducedMotion();
+  const reducedMotion = useSystemReducedMotion();
   const seats = useMemo<StageSeat[]>(() => [
     ...employees.map((employee) => ({ key: employeeSeatKey(employee.id), kind: "employee" as const, employee })),
     ADD_EMPLOYEE_SEAT,
@@ -213,7 +212,9 @@ export function WeWorkStage3D({
     if (seat.kind === "employee" && seat.employee.id !== selectedEmployeeId) onSelectEmployee(seat.employee.id);
   };
 
+  const workbenchOpening = useRef(false);
   const openEmployeeWorkbench = (source: HTMLElement, color: string) => {
+    if (workbenchOpening.current) return;
     const transitionDocument = document as Document & {
       startViewTransition?: (update: () => void | Promise<void>) => { finished: Promise<void> };
     };
@@ -221,6 +222,7 @@ export function WeWorkStage3D({
       onOpenEmployee();
       return;
     }
+    workbenchOpening.current = true;
     const rect = source.getBoundingClientRect();
     const transitionShell = document.createElement("div");
     transitionShell.className = "employee-workbench-transition-shell";
@@ -236,6 +238,7 @@ export function WeWorkStage3D({
         transitionShell.remove();
         flushSync(() => onOpenEmployee());
       }).finished.catch(() => {}).finally(() => {
+        workbenchOpening.current = false;
         transitionShell.remove();
       });
     }));
@@ -279,6 +282,7 @@ export function WeWorkStage3D({
   return (
     <section
       aria-label="Employee 办公室舞台"
+      data-preserve-motion
       className="wework-stage"
       data-mode={mode}
       data-settled={frame.settled || undefined}
