@@ -6,7 +6,7 @@ export function employeeWorkStatus(employee:WeWorkEmployee, deliveries:WeWorkTea
   const queued=own.find(delivery=>delivery.status==='queued');
   const latest=own.at(-1);
   if(activity?.state==='working'||running) return {state:'working',label:'执行中',detail:activity?.state==='working'?activity.detail:'正在回复群聊消息'} as const;
-  if(queued) return {state:'waiting',label:'等待中',detail:'群聊消息已排队，等待当前执行结束'} as const;
+  if(queued) return {state:'waiting',label:'等待中',detail:queued.queueReason ?? '群聊消息已排队，等待当前执行结束'} as const;
   if(latest && ['failed','uncertain'].includes(latest.status) && (!activity || latest.updatedAt>=activity.updatedAt)) return {state:'error',label:'需要处理',detail:latest.error??'群聊执行失败'} as const;
   if(activity && activity.state!=='idle') return {state:activity.state,label:activity.state==='error'?'需要处理':'等待中',detail:activity.detail};
   if(employee.status==='error')return {state:'error',label:'需要处理',detail:'执行异常，请打开工作台查看'} as const;

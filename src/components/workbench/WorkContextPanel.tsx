@@ -27,7 +27,7 @@ export function WorkContextPanel({ work }: { work: WorkItem }) {
   };
   return <section className="border-t border-slate-200 p-4 text-xs space-y-3" aria-label="任务上下文与交付">
     <h4 className="font-semibold text-slate-800">任务上下文与交付</h4>
-    <p className="text-slate-500">输入与决策供助手读取；输出需提交、验收后才能完成任务。</p>
+    <p className="text-slate-500">{work.workflowNodeId ? '输入与决策供助手读取；有效提交后可推进下游，交付物仍需独立验收。' : '输入与决策供助手读取；输出需提交、验收后才能完成任务。'}</p>
     {work.acceptanceCriteria && <p>验收标准：{work.acceptanceCriteria}</p>}
     <details>
       <summary className="cursor-pointer">资料与产物 · {records?.documents.length ?? 0} 个版本</summary>

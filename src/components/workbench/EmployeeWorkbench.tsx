@@ -29,6 +29,7 @@ import { MarkdownMessage } from '../common/MarkdownMessage';
 import { ConversationComposer } from '../common/ConversationComposer';
 import { agentPermissionOptions } from '../../domain/agentPermissions';
 import type { AgentPermissionMode } from '../../domain/wework';
+import { groupWorkbenchTimeline } from './workbenchTimeline';
 
 export const EmployeeWorkbench: React.FC = () => {
   const { teams, selectedTeamId, selectedEmployeeId, workbenchTabId, selectWorkbenchTab, isWorkbenchOpen, closeWorkbench, sendWorkbenchMessage, completeCurrentWork, returnCurrentWork, cancelWork, stopEmployee, operationNotice, dismissError, workbenchNotice } =
@@ -53,7 +54,15 @@ export const EmployeeWorkbench: React.FC = () => {
 
   useEffect(() => {
     if (!window.runtimeCoordinator) return;
-    return window.runtimeCoordinator.subscribe(setRuntimeEvent);
+    let timer: number | undefined;
+    let pending: RuntimeEvent | null = null;
+    const flush = () => { timer = undefined; if (pending) { setRuntimeEvent(pending); pending = null; } };
+    const unsubscribe = window.runtimeCoordinator.subscribe((event) => {
+      if (event.type !== 'assistant.delta') { pending = null; if (timer) window.clearTimeout(timer); timer = undefined; setRuntimeEvent(event); return; }
+      pending = event;
+      if (!timer) timer = window.setTimeout(flush, 200);
+    });
+    return () => { unsubscribe(); if (timer) window.clearTimeout(timer); };
   }, []);
   useEffect(() => { if (isWorkbenchOpen) void weworkHost.harnessModels().then((catalog) => setHarnessModels(catalog.models)).catch(() => setHarnessModels([])); }, [isWorkbenchOpen, selectedEmployeeId]);
   const dialogRef = useDialogFocus(isWorkbenchOpen, () => {
@@ -74,6 +83,22 @@ export const EmployeeWorkbench: React.FC = () => {
   };
   const selectedTab = tabs.find(tab=>tab.id===workbenchTabId) ?? tabs[0];
   const tabId = selectedTab?.id ?? 'private';
+  useEffect(() => {
+    if (!isWorkbenchOpen) return undefined;
+    const closeCurrentLayer = (event: Event) => {
+      if (selectedArtifactId) {
+        event.preventDefault();
+        setSelectedArtifactId(null);
+        return;
+      }
+      if (tabId !== 'private' && tabId !== 'group') {
+        event.preventDefault();
+        closeTab(tabId);
+      }
+    };
+    window.addEventListener('wework:close-current-layer', closeCurrentLayer);
+    return () => window.removeEventListener('wework:close-current-layer', closeCurrentLayer);
+  }, [isWorkbenchOpen, selectedArtifactId, tabId, tabs]);
   useEffect(() => {
     if (!isWorkbenchOpen || selectedArtifactId || !tabs.length) return;
     const cycle = (event: KeyboardEvent) => {
@@ -151,7 +176,10 @@ export const EmployeeWorkbench: React.FC = () => {
                   {unread&&<span aria-label="有未读更新" className="h-1.5 w-1.5 rounded-full bg-sky-500"/>}
                 </button>{tab.id!=='private' && tab.id!=='group' && <button type="button" className="workbench-tab-close" aria-label={`关闭任务页签 ${tab.title}`} title="关闭页签，保留任务记录" onClick={() => closeTab(tab.id)}><X size={12}/></button>}</div>;
               })}
-              {hiddenTabs.length > 0 && <Select label="重新打开任务页签" className="workbench-reopen-tab" value="" options={[{value:"",label:"重新打开任务",disabled:true},...hiddenTabs.map(tab=>({value:tab.id,label:tab.title}))]} onChange={id=>{setClosedTabs(previous=>({...previous,[selectedEmployeeId ?? '']:(previous[selectedEmployeeId ?? ''] ?? []).filter(value=>value!==id)}));selectWorkbenchTab(id);}} />}
+              {hiddenTabs.length > 0 && <details className="workbench-reopen-tab">
+                <summary className="workbench-folder-tab" aria-label="重新打开任务页签"><span>已关闭任务</span><ChevronDown size={12}/></summary>
+                <div className="workbench-reopen-menu" role="menu">{hiddenTabs.map(tab=><button type="button" role="menuitem" key={tab.id} onClick={event=>{event.currentTarget.closest('details')?.removeAttribute('open');setClosedTabs(previous=>({...previous,[selectedEmployeeId ?? '']:(previous[selectedEmployeeId ?? ''] ?? []).filter(value=>value!==tab.id)}));selectWorkbenchTab(tab.id);}}>{tab.title}</button>)}</div>
+              </details>}
             </div>
         {/* Content Body */}
         <div className="workbench-folder-body min-h-0 flex-1 flex overflow-hidden">
@@ -185,27 +213,13 @@ export const EmployeeWorkbench: React.FC = () => {
 
             {/* Conversation Messages */}
             {tabId==='private'&&<SessionManager key={currentEmployee.id} employee={currentEmployee}/>}<div ref={conversation.ref} onScroll={conversation.onScroll} id="workbench-tab-panel" role="tabpanel" aria-labelledby={`tab-${tabId}`} aria-label="助手会话消息" className="min-h-0 flex-1 p-4 overflow-y-auto space-y-3 bg-slate-50/30">
-              {currentEmployee.activeSession.messages.map((msg) => {
+              {groupWorkbenchTimeline(currentEmployee.activeSession.messages).map((entry) => {
+                if(entry.kind==='activity') return <details key={entry.messages[0].id} className="group mx-auto my-2 w-full max-w-[90%] text-[11px] text-slate-400"><summary className="flex cursor-pointer list-none items-center justify-center gap-1.5 rounded-full border border-slate-200/60 bg-slate-100 px-3 py-1 hover:text-slate-600"><Activity className="h-3 w-3"/><span>执行过程 · {entry.messages.length} 项活动</span><span className="group-open:hidden">展开</span><span className="hidden group-open:inline">收起</span></summary><ol className="mt-2 max-h-56 space-y-2 overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 leading-5 text-slate-500">{entry.messages.map(message=><li key={message.id} className="break-words whitespace-pre-wrap">{message.text.replace(/^思考\s*·\s*/,'')}</li>)}</ol></details>;
+                const msg=entry.message;
                 const isUser = msg.sender === 'user';
                 const isSystem = msg.sender === 'system';
-                const isThinking = isSystem && (msg.runtimeKind==='thinking'||msg.id.endsWith('-thinking'));
 
                 if (isSystem) {
-                  if (isThinking) {
-                    return (
-                      <details key={msg.id} className="group mx-auto my-2 max-w-[90%] text-[11px] text-slate-400">
-                        <summary className="flex cursor-pointer list-none items-center justify-center gap-1.5 rounded-full border border-slate-200/60 bg-slate-100 px-3 py-1 hover:text-slate-600">
-                          <Activity className="h-3 w-3" />
-                          <span>已思考</span>
-                          <span className="text-[11px] group-open:hidden">查看过程</span>
-                          <span className="hidden text-[11px] group-open:inline">收起过程</span>
-                        </summary>
-                        <div className="mt-2 max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 leading-5 text-slate-500 whitespace-pre-wrap">
-                          {msg.text.replace(/^思考\s*·\s*/, '')}
-                        </div>
-                      </details>
-                    );
-                  }
                   return (
                     <div key={msg.id} className="flex justify-center my-2">
                       <span className="text-[11px] text-slate-400 bg-slate-100 px-3 py-1 rounded-full border border-slate-200/60 flex items-center gap-1.5">
@@ -301,7 +315,7 @@ export const EmployeeWorkbench: React.FC = () => {
           {!detailsOpen && <button type="button" className="workbench-employee-head" aria-label={`展开 ${currentEmployee.displayName} 的助手侧栏`} aria-expanded={false} onClick={() => setDetailsOpen(true)}><EmployeeBotAvatar size={88} bodyColor={currentEmployee.color} status={currentEmployee.status} showBadge={false} /><span>{currentEmployee.displayName}</span><small>{currentEmployee.roleName}</small></button>}
           {detailsOpen && <div className="workbench-sidebar flex min-h-0 shrink-0 flex-col overflow-hidden border-l border-slate-200 bg-white">
             <Button variant="ghost" type="button" onClick={() => setDetailsOpen(false)} className="workbench-identity m-4 mb-0 shrink-0 flex items-center gap-3 p-3 pr-12 text-left" aria-label="收起助手侧栏"><EmployeeBotAvatar size={36} bodyColor={currentEmployee.color} status={currentEmployee.status} showBadge={false} /><span className="min-w-0 flex-1"><span className="flex items-center gap-2"><strong className="truncate text-sm text-slate-900">{currentEmployee.displayName}</strong>{currentEmployee.isLead && <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[8px] font-bold text-rose-700">LEADER</span>}</span><span className="mt-1 block truncate text-[11px] text-slate-500">{currentEmployee.roleName} · {currentHarness}</span><span className={`mt-1 inline-block rounded px-1.5 py-0.5 text-[11px] ${runtimeEvent?.type === 'run.failed' ? 'bg-rose-50 text-rose-700' : runtimeEvent ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{runtimeEvent?.type === 'run.started' ? 'Runtime 已启动' : runtimeEvent?.type === 'assistant.delta' ? 'Runtime 输出中' : runtimeEvent?.type === 'assistant.activity' ? (runtimeEvent.activity === 'tool' ? 'Runtime 调用工具' : 'Runtime 处理中') : runtimeEvent?.type === 'run.succeeded' ? 'Runtime 已完成' : runtimeEvent?.type === 'run.failed' ? 'Runtime 失败' : currentEmployee.status === 'working' ? '正在执行' : currentEmployee.activeSession.messages.some((message) => message.sender === 'employee') ? '最近回复已保存' : window.weworkHost ? '桌面执行器已连接' : '浏览器模式'}</span></span></Button>
-            <div className={rightPanel === 'config' ? 'min-h-0 flex-1 overflow-hidden' : 'workbench-details min-h-0 flex-1 overflow-y-auto p-4 space-y-4'}>
+            <div className={rightPanel === 'config' ? 'mt-3 min-h-0 flex-1 overflow-hidden' : 'workbench-details mt-3 min-h-0 flex-1 overflow-y-auto p-4 space-y-4'}>
             {rightPanel === 'config' ? <EmployeeConfigDialog embedded employee={employee!} team={currentTeam} onClose={() => setRightPanel('details')} /> : <>
             <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-xs">
               <div className="flex items-center justify-between"><h4 className="text-xs font-bold text-slate-800">{selectedTab?.title}</h4><div className="flex items-center gap-2"><button type="button" onClick={() => setRightPanel('config')} className="text-[11px] font-semibold text-sky-700 hover:underline">助手配置</button><span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${currentEmployee.status === 'working' ? 'bg-sky-50 text-sky-700' : 'bg-emerald-50 text-emerald-700'}`}>{workStatus.state === 'working' ? '运行中' : '就绪'}</span></div></div>

@@ -1,3 +1,5 @@
+import { chronologicalEntries } from './groupTimeline';
+import { TeamMessage } from './TeamMessage';
 import { employeeSessions } from '../../domain/workbenchSessions';
 import { groupTranscript } from './groupTranscript';
 import { LatestMessageButton } from '../common/LatestMessageButton';
@@ -10,7 +12,7 @@ import { SessionContextSummary } from '../workbench/SessionContextSummary';
 import { completeGroupMention, groupMentionSuggestions, parseGroupDraft } from './groupDraft';
 import { GroupMentionList } from './GroupMentionList';
 import { useConversationScroll } from '../../hooks/useConversationScroll';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { BarChart3, BriefcaseBusiness, Circle, Columns3, Crown, FolderGit2, LayoutList, MessageCircle, Plus, RotateCcw, Search, Settings2, Trash2, UserRound, Wrench, X } from 'lucide-react';
 import { normalizeWorkspaceAssignment, type AgentPermissionMode, type WeWorkEmployee, type WeWorkTeam, type SessionExecution, type SkillRef, type WorkItem, type WorkspaceAssignment } from '../../domain/wework';
 import { agentPermissionOptions } from '../../domain/agentPermissions';
@@ -28,11 +30,13 @@ const harnessAdapter = (harness: HarnessId): SessionExecution['adapter'] => harn
 
 export function EmployeeConfigDialog({ employee, team, onClose, embedded = false }: { employee: WeWorkEmployee; team?: WeWorkTeam; onClose: () => void; embedded?: boolean }) {
   const { updateEmployee, resetEmployeeContext, teams } = useWeWorkStore();
-  const owningTeam = team ?? teams.find((candidate) => candidate.employees.some((employee) => employee.id === employee.id));
+  const owningTeam = team ?? teams.find((candidate) => candidate.employees.some((member) => member.id === employee.id));
   const [color, setColor] = useState(employee.color);
   const [displayName, setDisplayName] = useState(employee.displayName);
   const [roleName, setRoleName] = useState(employee.roleName);
   const [runtime, setRuntime] = useState<WeWorkEmployee['runtime']>(employee.runtime);
+  const [skillQuery, setSkillQuery] = useState('');
+  const [selectedSkillsOnly, setSelectedSkillsOnly] = useState(false);
   const [availableSkills, setAvailableSkills] = useState<AvailableSkill[]>([]);
   const [selectedSkillIds, setSelectedSkillIds] = useState(employee.builtInSkills.map((skill) => skill.id));
   const [skillMessage, setSkillMessage] = useState('正在读取 Skill Pool…');
@@ -169,7 +173,23 @@ export function EmployeeConfigDialog({ employee, team, onClose, embedded = false
           <p className="mt-3 text-[11px] leading-4 text-slate-400">权限变更在下一次执行生效；运行中的任务不会中途获得更多权限。</p>
         </section>
 
-        <section className="col-span-2 rounded-xl border border-slate-200 p-4" aria-label="助手 Skills 与 Persona"><div className="flex items-start justify-between gap-3"><div><strong className="block text-xs text-slate-700">Skills 与 Persona</strong><span className="mt-0.5 block text-[11px] text-slate-400">从 WeWork 业务技能与当前 Workspace 的 Skill Pool 绑定真实技能包。</span></div><Button type="button" onClick={() => void loadSkills()} className="flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 hover:border-sky-300"><RotateCcw className="h-3 w-3" />重新扫描</Button></div><div className="mt-4 grid grid-cols-2 gap-4"><div className="col-span-2"><div className="grid grid-cols-2 gap-2">{availableSkills.map((skill) => <label key={skill.id} className={`flex cursor-pointer gap-2 rounded-lg border p-3 transition ${selectedSkillIds.includes(skill.id) ? 'border-sky-300 bg-sky-50' : 'border-slate-200 bg-white hover:border-slate-300'}`}><input type="checkbox" checked={selectedSkillIds.includes(skill.id)} onChange={(event) => setSelectedSkillIds((ids) => event.target.checked ? [...new Set([...ids, skill.id])] : ids.filter((id) => id !== skill.id))} className="mt-0.5 accent-sky-600" /><span className="min-w-0"><span className="flex items-center gap-2 text-xs font-semibold text-slate-700">{skill.name}<i className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] not-italic font-medium text-slate-500">{skill.source === 'wework' ? 'WeWork 业务技能' : '当前 Workspace'}</i></span><span className="mt-1 block text-[11px] leading-4 text-slate-400">{skill.description || skill.id}</span></span></label>)}{employee.builtInSkills.filter((skill) => !availableSkills.some((available) => available.id === skill.id)).map((skill) => <label key={skill.id} className="flex cursor-pointer gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3"><input type="checkbox" checked={selectedSkillIds.includes(skill.id)} onChange={(event) => setSelectedSkillIds((ids) => event.target.checked ? [...new Set([...ids, skill.id])] : ids.filter((id) => id !== skill.id))} className="mt-0.5 accent-amber-600" /><span><span className="text-xs font-semibold text-slate-700">{skill.name}</span><span className="mt-1 block text-[11px] text-amber-700">已绑定，但当前 Skill Pool 中不可用</span></span></label>)}</div>{skillMessage && <p role="status" className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-[11px] text-slate-500">{skillMessage}。Workspace Skill 目录：skills/&lt;skill-id&gt;/SKILL.md</p>}</div><label className="col-span-2 text-xs font-semibold text-slate-600">Persona / Session 指令<Textarea value={sessionExecution.systemPrompt} onChange={(event) => setSessionExecution({ ...sessionExecution, systemPrompt: event.target.value })} placeholder="描述该助手在当前 Session 中应坚持的身份、视角和工作方式" className="mt-2 min-h-24 w-full resize-y px-3 py-2.5 leading-5" /></label></div></section>
+        <section className="col-span-2 min-w-0 rounded-xl border border-slate-200 p-4" aria-label="助手技能">
+          <div className="flex items-start justify-between gap-3"><div><strong className="block text-sm text-slate-700">技能</strong><p className="mt-1 text-xs text-slate-500">选择这名助手执行任务时可使用的技能。</p></div><Button type="button" onClick={() => void loadSkills()} className="flex shrink-0 items-center gap-1 whitespace-nowrap px-2 py-1 text-xs"><RotateCcw size={14} />刷新</Button></div>
+          <Input aria-label="搜索助手技能" placeholder="搜索技能名称或说明" value={skillQuery} onChange={event => setSkillQuery(event.target.value)} className="mt-3 w-full" />
+          <div className="my-3 flex items-center justify-between gap-2 text-xs text-slate-500"><span>已选 {selectedSkillIds.length} 项</span><label className="flex items-center gap-2"><input type="checkbox" checked={selectedSkillsOnly} onChange={event => setSelectedSkillsOnly(event.target.checked)} />仅看已选</label></div>
+          <div className="max-h-80 space-y-2 overflow-y-auto">
+            {(() => {
+              const all = [...availableSkills, ...employee.builtInSkills.filter(skill => !availableSkills.some(item => item.id === skill.id)).map(skill => ({...skill, description: '', source: 'missing'}))];
+              const matches = all.filter(skill => (!selectedSkillsOnly || selectedSkillIds.includes(skill.id)) && `${skill.name} ${skill.description ?? ''}`.toLowerCase().includes(skillQuery.trim().toLowerCase()));
+              return matches.length ? matches.map(skill => <div key={skill.id} className={`rounded-lg border p-3 ${selectedSkillIds.includes(skill.id) ? 'border-sky-300 bg-sky-50/50' : 'border-slate-200'}`}>
+                <label className="flex cursor-pointer items-start gap-3"><input type="checkbox" checked={selectedSkillIds.includes(skill.id)} onChange={event => setSelectedSkillIds(ids => event.target.checked ? [...new Set([...ids, skill.id])] : ids.filter(id => id !== skill.id))} className="mt-1 shrink-0 accent-sky-600" /><span className="min-w-0 flex-1"><strong className="block break-words text-xs text-slate-700">{skill.name}</strong><span className={`mt-1 block text-[11px] ${skill.source === 'missing' ? 'text-amber-700' : 'text-slate-400'}`}>{skill.source === 'wework' ? 'WeWork 技能' : skill.source === 'missing' ? '已绑定 · 当前不可用' : '工作目录技能'}</span></span></label>
+                {skill.description && <details className="ml-6 mt-2 text-xs text-slate-500"><summary className="cursor-pointer">查看说明</summary><p className="mt-2 whitespace-pre-wrap break-words leading-5">{skill.description}</p></details>}
+              </div>) : <p role="status" className="py-4 text-center text-xs text-slate-400">没有符合条件的技能</p>;
+            })()}
+          </div>
+          {skillMessage && <details className="mt-3 text-[11px] text-slate-400"><summary className="cursor-pointer">技能来源与扫描状态</summary><p role="status" className="mt-2 break-words">{skillMessage}。目录：skills/&lt;skill-id&gt;/SKILL.md</p></details>}
+        </section>
+        <section className="col-span-2 rounded-xl border border-slate-200 p-4" aria-label="助手角色指令"><label className="block text-sm font-semibold text-slate-700">角色与工作方式<Textarea value={sessionExecution.systemPrompt} onChange={event => setSessionExecution({ ...sessionExecution, systemPrompt: event.target.value })} placeholder="例如：负责数据核查；结论需要附来源，不确定时先说明。" className="mt-3 min-h-28 w-full resize-y text-xs font-normal leading-5" /></label><p className="mt-2 text-xs text-slate-400">用于当前会话的角色指令，说明职责、偏好和协作方式。</p></section>
         <section className="col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-4" aria-label="上下文管理"><SessionContextSummary session={employee.activeSession}/><div className="mt-3 flex justify-end"><Button variant="secondary" type="button" disabled={saving} onClick={resetContext} className="flex h-9 shrink-0 items-center gap-1.5 px-3 text-[11px] hover:border-rose-200 hover:text-rose-600"><RotateCcw className="h-3.5 w-3.5" />清空上下文</Button></div><label className="mt-4 block border-t border-slate-200 pt-3 text-[11px] font-semibold text-slate-600">订阅群聊上下文 Tag<Input aria-label="Session 上下文 Tag" value={contextTags} onChange={(event) => setContextTags(event.target.value)} placeholder="例如：项目事实, 质检（逗号分隔）" className="mt-2 w-full px-3 py-2 font-normal" /><span className="mt-1.5 block font-normal leading-4 text-slate-400">全员消息和直接 @ 你的消息始终可见；标签用于补充订阅其他相关群聊上下文。</span></label></section>
       </div>
       <footer className="flex justify-end gap-2 border-t border-slate-100 bg-slate-50 px-6 py-4">{!embedded && <Button variant="ghost" type="button" onClick={onClose} className="px-4 py-2 text-xs">取消</Button>}<Button variant="primary" type="button" disabled={saving || !displayName.trim() || !roleName.trim() || !workspaceValid || !employeeConfigurationValid} onClick={save} className="px-5 py-2 text-xs">{saving ? '保存中…' : '保存配置'}</Button></footer>
@@ -213,21 +233,15 @@ function TeamChatView({ team }: { team: WeWorkTeam }) {
 
   const [sending,setSending]=useState(false);
   const [sendError,setSendError]=useState('');
-  const parsed=parseGroupDraft(draft,team.employees);
-  const [mentionIndex,setMentionIndex]=useState(0);
-  const [mentionsDismissed,setMentionsDismissed]=useState(false);
-  useEffect(()=>{setMentionIndex(0);setMentionsDismissed(false)},[draft]);
-  const suggestions=mentionsDismissed?[]:groupMentionSuggestions(draft,team.employees);
-  const tagQuery=draft.match(/(?:^|\s)#([\p{L}\p{N}_-]*)$/u)?.[1];
-  const knownTags=[...new Set([...(team.teamMessages??[]).flatMap(message=>message.contextTagIds??[]),...team.employees.flatMap(employee=>employee.activeSession.contextTagIds??[])])];
-  const tagSuggestions=tagQuery===undefined||mentionsDismissed?[]:[...knownTags.filter(tag=>tag.toLowerCase().includes(tagQuery.toLowerCase())),...(tagQuery&&!knownTags.includes(tagQuery)?[tagQuery]:[])];
-  const selectedTag=Math.min(mentionIndex,Math.max(0,tagSuggestions.length-1));
-  const completeTag=(tag:string)=>{setDraft(value=>value.replace(/#[\p{L}\p{N}_-]*$/u,`#${tag} `));inputRef.current?.focus()};
-  const selectedMention=Math.min(mentionIndex,Math.max(0,suggestions.length-1));
-  const latestRequest=(team.teamMessages??[]).filter(message=>message.recipientId).at(-1);
-  const failedDeliveries=(team.collaborationDeliveries??[]).filter(delivery=>delivery.status==='failed'&&delivery.messageId===latestRequest?.id&&!team.collaborationDeliveries?.some(retry=>retry.retryOf===delivery.id));
-  const messages=groupTranscript(team,filterId).filter(message=>`${message.text} ${message.senderName??''}`.toLowerCase().includes(messageQuery.toLowerCase()));
-  const active=(team.collaborationDeliveries??[]).filter(item=>item.status==='running'||item.status==='queued');
+  const parsed=useMemo(()=>parseGroupDraft(draft,team.employees),[draft,team.employees]);
+  const latestRequest=useMemo(()=>(team.teamMessages??[]).filter(message=>message.recipientId).at(-1),[team.teamMessages]);
+  const failedDeliveries=useMemo(()=>(team.collaborationDeliveries??[]).filter(delivery=>delivery.status==='failed'&&delivery.messageId===latestRequest?.id&&!team.collaborationDeliveries?.some(retry=>retry.retryOf===delivery.id)),[team.collaborationDeliveries,latestRequest?.id]);
+  const messages=useMemo(()=>groupTranscript(team,filterId).filter(message=>`${message.text} ${message.senderName??''}`.toLowerCase().includes(messageQuery.toLowerCase())),[team,filterId,messageQuery]);
+  const active=useMemo(()=>(team.collaborationDeliveries??[]).filter(item=>item.status==='running'||item.status==='queued'),[team.collaborationDeliveries]);
+  const timeline = useMemo(()=>chronologicalEntries([
+    ...messages.map(message => ({kind: 'message' as const, message, time: message.time})),
+    ...active.filter(item => !messageQuery && item.forwardingState !== 'sent' && (!filterId || item.employeeId === filterId)).map(item => ({kind: 'execution' as const, item, time: item.createdAt})),
+  ]),[messages,active,messageQuery,filterId]);
   const conversation=useConversationScroll(team.id+':'+filterId+':'+messageQuery,{team,liveRuns});
   useEffect(()=>{setTranscriptEmployeeId(null);setDraft('');setMessageQuery('');setSearchOpen(false);setSendError('');setHistoryOpen(false)},[team.id]);
   const autoMention = useRef('');
@@ -242,7 +256,7 @@ function TeamChatView({ team }: { team: WeWorkTeam }) {
     setTranscriptEmployeeId(id);
     requestAnimationFrame(() => inputRef.current?.focus());
   };
-  const mention=(employee:Pick<WeWorkEmployee,'displayName'>)=>{setDraft(value=>completeGroupMention(value,employee.displayName));inputRef.current?.focus()};
+
   const submit=async(message = draft)=>{
     if(!message.trim()||sending)return false;
     if(!parsed.all&&parsed.mentioned.length>1){setSendError('请一次 @ 一位助手；不带 @ 的消息全员可见。');return false;}
@@ -264,25 +278,10 @@ function TeamChatView({ team }: { team: WeWorkTeam }) {
     <section className="relative flex min-h-0 min-w-0 flex-col"><header className="flex h-14 shrink-0 items-center justify-between border-b border-slate-100 px-5"><div><h4 className="text-xs font-bold">{transcriptEmployee?`${transcriptEmployee.displayName} · 群聊记录`:'团队群聊'}</h4><p className="mt-1 text-[11px] text-slate-400">{transcriptEmployee?'再次点击该助手恢复全部消息':'全员共享消息 · @ 助手邀请回复'}</p></div><div className="flex items-center gap-2">{filterId&&<button type="button" onClick={()=>selectTranscript(null)} className="text-xs text-sky-700">显示全部</button>}<Button variant="ghost" type="button" aria-label="执行记录" aria-expanded={historyOpen} onClick={()=>setHistoryOpen(!historyOpen)} className="p-2 text-[11px]">执行记录</Button><button type="button" aria-label="搜索群聊" aria-expanded={searchOpen} onClick={()=>{setSearchOpen(!searchOpen);setMessageQuery('')}} className="p-2 text-slate-400"><Search className="h-4 w-4"/></button></div></header>
 
     {searchOpen&&<Input autoFocus type="search" aria-label="搜索群聊消息" value={messageQuery} onChange={e=>setMessageQuery(e.target.value)} placeholder="搜索消息或发送人" className="m-3 p-2"/>}
-    <div ref={conversation.ref} onScroll={conversation.onScroll} aria-label="团队群聊消息" className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">{messages.length===0&&<p role="status" className="text-center text-xs text-slate-400">{messageQuery?'没有匹配的消息':filterId?'该助手暂无相关群聊记录':'发送第一条消息，所有成员都可以看到。'}</p>}{messages.map(message=>{const human=message.sender==='user';const employee=human?undefined:team.employees.find(e=>e.id===message.senderId)??team.employees.find(e=>e.displayName===message.senderName);return <article key={message.id} className="flex gap-3" data-sender-kind={human?'human':'employee'}><span className={`grid h-8 w-8 shrink-0 place-items-center ${human?'rounded-full bg-slate-900 text-white':''}`}>{human?<UserRound aria-label="人类用户" className="h-4 w-4"/>:employee?<WeWorkEmployeeAvatar employee={employee} overview/>:<span className="text-xs">AI</span>}</span><div className="min-w-0"><div className="flex items-center gap-2"><strong className="text-[11px] text-slate-700">{human?'你':message.senderName??'助手'}</strong><span className={`rounded px-1.5 py-0.5 text-[11px] ${human?'bg-slate-100 text-slate-500':'bg-sky-50 text-sky-700'}`}>{human?'人类':'AI 助手'}</span><time className="text-[11px] text-slate-400">{message.time.includes('T')?new Date(message.time).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}):message.time}</time></div><div className="mt-1 text-xs leading-5 text-slate-600"><MarkdownMessage>{message.text}</MarkdownMessage></div></div></article>})}
-
-    {!messageQuery&&active.filter(item=>!filterId||item.employeeId===filterId).map(item=>{const employee=team.employees.find(e=>e.id===item.employeeId);const persisted=employee ? employeeSessions(employee).flatMap(session=>session.messages).filter(message=>message.runtimeRunId===item.runId) : []; const live=persisted.length?{text:persisted.filter(message=>message.runtimeKind==='text').map(message=>message.text).join('\n\n'),tools:persisted.filter(message=>message.runtimeKind==='tool').map(message=>message.text)}:item.runId?liveRuns[item.runId]:undefined;return <article key={item.id} aria-label={`${employee?.displayName} 执行进度`} className="flex gap-3 text-xs"><span className="h-8 w-8 shrink-0">{employee&&<WeWorkEmployeeAvatar employee={employee} overview/>}</span><div className="min-w-0 flex-1"><div className="flex items-center gap-2 text-slate-500"><strong>{employee?.displayName}</strong><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-500"/><span>{item.status==='queued'?'排队中':'正在执行'}</span>{item.status === 'running' && <button type="button" disabled={sending || !draft.trim()} onClick={()=>void steer(item.id)} className="ml-auto text-sky-700 disabled:opacity-40" title="将输入框中的内容补充给这次执行">补充本轮</button>}<button type="button" aria-label="取消这次回复" onClick={()=>cancel(item.id)} className="ml-auto hover:text-rose-600">取消</button></div>{live?.tools.length? <details className="mt-2 rounded-lg border border-slate-200 p-3"><summary className="cursor-pointer">工具调用 · {live.tools.length} 条活动</summary><ol className="mt-2 space-y-2">{live.tools.map((text,index)=><li key={index} className="break-words text-slate-500">{text}</li>)}</ol></details>:null}{live?.text?<div className="mt-2 leading-5 text-slate-600"><MarkdownMessage>{live.text}</MarkdownMessage></div>:<p className="mt-2 text-slate-400">{item.status==='queued'?'等待当前执行结束…':'正在处理…'}</p>}</div></article>})}</div>
+    <div ref={conversation.ref} onScroll={conversation.onScroll} aria-label="团队群聊消息" className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">{messages.length===0&&<p role="status" className="text-center text-xs text-slate-400">{messageQuery?'没有匹配的消息':filterId?'该助手暂无相关群聊记录':'发送第一条消息，所有成员都可以看到。'}</p>}{timeline.map(entry=>{if(entry.kind==='message')return <TeamMessage key={entry.message.id} team={team} message={entry.message}/>; const item=entry.item;const employee=team.employees.find(e=>e.id===item.employeeId);const persisted=employee ? employeeSessions(employee).flatMap(session=>session.messages).filter(message=>message.runtimeRunId===item.runId) : []; const live=persisted.length?{text:persisted.filter(message=>message.runtimeKind==='text').map(message=>message.text).join('\n\n'),tools:persisted.filter(message=>message.runtimeKind==='tool').map(message=>message.text)}:item.runId?liveRuns[item.runId]:undefined;return <article key={item.id} aria-label={`${employee?.displayName} 执行进度`} className="flex gap-3 text-xs"><span className="h-8 w-8 shrink-0">{employee&&<WeWorkEmployeeAvatar employee={employee} overview/>}</span><div className="min-w-0 flex-1"><div className="flex items-center gap-2 text-slate-500"><strong>{employee?.displayName}</strong><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-sky-500"/><span>{item.status==='queued'?'排队中':'正在执行'}</span><time dateTime={item.createdAt} title={new Date(item.createdAt).toLocaleString('zh-CN')} className="text-[11px] text-slate-400">{new Date(item.createdAt).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}</time>{item.status === 'running' && <button type="button" disabled={sending || !draft.trim()} onClick={()=>void steer(item.id)} className="ml-auto text-sky-700 disabled:opacity-40" title="将输入框中的内容补充给这次执行">补充本轮</button>}<button type="button" aria-label="取消这次回复" onClick={()=>cancel(item.id)} className="ml-auto hover:text-rose-600">取消</button></div>{live?.tools.length? <details className="mt-2 rounded-lg border border-slate-200 p-3"><summary className="cursor-pointer">工具调用 · {live.tools.length} 条活动</summary><ol className="mt-2 space-y-2">{live.tools.map((text,index)=><li key={index} className="break-words text-slate-500">{text}</li>)}</ol></details>:null}{live?.text?<div className="mt-2 leading-5 text-slate-600"><MarkdownMessage>{live.text}</MarkdownMessage></div>:<p className="mt-2 text-slate-400">{item.status==='queued'?'等待当前执行结束…':'正在处理…'}</p>}</div></article>})}</div>
     {conversation.away&&<LatestMessageButton onClick={conversation.latest}/>}{sendError&&<p role="alert" className="mx-4 text-xs text-rose-600">{sendError}</p>}
     {failedDeliveries.filter(item=>!filterId||item.employeeId===filterId).map(latestDelivery=><div key={latestDelivery.id} role="alert" className="mx-4 rounded-lg bg-rose-50 p-3 text-xs text-rose-700"><p>{team.employees.find(e=>e.id===latestDelivery.employeeId)?.displayName} 回复失败：{latestDelivery.error}</p><Button disabled={sending} onClick={async()=>{setSending(true);try{await localWeWorkApi.retryGroupDelivery(team.id,{deliveryId:latestDelivery.id,requestId:crypto.randomUUID()});await useWeWorkStore.getState().hydrate();}catch(error){setSendError(error instanceof Error?error.message:String(error));}finally{setSending(false)}}}>重试这次回复</Button></div>)}
-    <GroupMentionList employees={team.employees} suggestions={suggestions} selectedIndex={selectedMention} onSelect={mention} className="mx-4"/>
-    {tagQuery!==undefined&&!mentionsDismissed&&!tagSuggestions.length&&<p role="status" className="mx-4 text-xs text-slate-500">暂无已有标签，输入标签名称后按 Tab 或 Enter 创建。</p>}
-    {tagSuggestions.length>0&&<div role="listbox" aria-label="上下文标签" className="mx-4 max-h-48 overflow-auto rounded-lg border border-slate-200 bg-white p-2 shadow-sm">{tagSuggestions.map((tag,index)=><button key={tag} type="button" role="option" aria-selected={index===selectedTag} onMouseDown={e=>e.preventDefault()} onClick={()=>completeTag(tag)} className={`block w-full rounded-lg px-3 py-2 text-left text-xs ${index===selectedTag?'bg-sky-50 text-sky-700':''}`}>#{tag}{!knownTags.includes(tag)&&' · 新标签'}</button>)}</div>}
-    <ConversationComposer key={team.id} onInputKeyDown={event=>{
-      const count=tagSuggestions.length||suggestions.length;
-      const selected=tagSuggestions.length?selectedTag:selectedMention;
-      if(!count)return;
-      if(['ArrowDown','ArrowUp','Enter','Tab','Escape'].includes(event.key)&&!event.shiftKey){
-        event.preventDefault();event.stopPropagation();
-        if(event.key==='Escape')setMentionsDismissed(true);
-        else if(event.key==='Tab'||event.key==='Enter'){if(tagSuggestions.length)completeTag(tagSuggestions[selectedTag]);else mention(suggestions[selectedMention]);}
-        else setMentionIndex((selected+(event.key==='ArrowDown'?1:-1)+count)%count);
-      }
-    }} inputRef={inputRef} value={draft} onChange={setDraft} onSubmit={submit} disabled={sending} ariaLabel="发送团队消息" placeholder="发送消息… @ 提及助手，# 添加标签" leadingControls={<div className="flex flex-wrap items-center gap-2"><button type="button" aria-label="提及群聊助手" onClick={()=>{setDraft(value=>`${value}${value&&!value.endsWith(' ')?' ':''}@`);inputRef.current?.focus()}} className="grid h-7 w-7 place-items-center rounded-lg text-sm font-semibold text-slate-500 hover:bg-white">@</button><span className="text-[11px] text-slate-500">{parsed.all?'邀请全体助手回复':parsed.recipientId?`邀请 ${parsed.mentioned[0].displayName} 回复`:`#${team.name} · 全员可见`}</span>{parsed.contextTagIds.map(tag=><span key={tag} className="rounded-md bg-sky-50 px-1.5 py-1 text-[11px] text-sky-700">#{tag}</span>)}</div>}/></section>{historyOpen&&<aside aria-label="群聊执行记录" className="team-chat-history flex min-h-0 min-w-0 flex-col border-l border-slate-200 bg-slate-50" onKeyDown={event=>{if(event.key==='Escape'){event.stopPropagation();setHistoryOpen(false)}}}><header className="flex items-center justify-between border-b border-slate-200 p-4"><strong className="text-sm">执行记录</strong><button type="button" aria-label="关闭执行记录" onClick={()=>setHistoryOpen(false)}><X className="h-4 w-4"/></button></header><div className="min-h-0 flex-1 overflow-auto p-4">{team.collaborationDeliveries?.length?<GroupDeliveryFeedback team={team} onCancel={cancel}/>:<p className="text-xs text-slate-400">暂无执行记录</p>}</div></aside>}</div>;
+    <TeamGroupComposer team={team} draft={draft} setDraft={setDraft} inputRef={inputRef} submit={submit} sending={sending} /></section>{historyOpen&&<aside aria-label="群聊执行记录" className="team-chat-history flex min-h-0 min-w-0 flex-col border-l border-slate-200 bg-slate-50" onKeyDown={event=>{if(event.key==='Escape'){event.stopPropagation();setHistoryOpen(false)}}}><header className="flex items-center justify-between border-b border-slate-200 p-4"><strong className="text-sm">执行记录</strong><button type="button" aria-label="关闭执行记录" onClick={()=>setHistoryOpen(false)}><X className="h-4 w-4"/></button></header><div className="min-h-0 flex-1 overflow-auto p-4">{team.collaborationDeliveries?.length?<GroupDeliveryFeedback team={team} onCancel={cancel}/>:<p className="text-xs text-slate-400">暂无执行记录</p>}</div></aside>}</div>;
 }
 
 export function TeamIssuesView({ team }: { team: WeWorkTeam }) {
@@ -387,4 +386,39 @@ export function TeamManagementView({ portalPage, onPortalNavigate, initialSectio
   </div><Dialog open={Boolean(removingId)} busy={removing} onClose={() => setRemovingId(null)} title="移除助手" description={`将 ${team.employees.find(employee => employee.id === removingId)?.displayName ?? ''} 移出团队。当前执行会先停止，未完成工作退回待分配，已完成工作和工作目录保留。`}>
     <div className="space-y-3 px-5 pb-5">{removeError && <p role="alert" className="text-xs text-rose-600">{removeError}</p>}<Button disabled={removing} onClick={() => setRemovingId(null)}>取消</Button><Button disabled={removing} onClick={async () => { if (!removingId) return; setRemoving(true); try { await removeEmployee(team.id, removingId); setRemovingId(null); } catch(error) { setRemoveError(error instanceof Error ? error.message : String(error)); } finally { setRemoving(false); } }}>确认移除助手</Button></div>
     </Dialog>{configEmployee && <EmployeeConfigDialog employee={configEmployee} team={team} onClose={() => setConfigEmployeeId(null)} />}</section>;
+}
+
+export function TeamGroupComposer({ team, draft, setDraft, inputRef, submit, sending }: {
+  team: WeWorkTeam; draft: string; setDraft: React.Dispatch<React.SetStateAction<string>>;
+  inputRef: React.RefObject<HTMLTextAreaElement | null>;
+  submit: (message?: string) => Promise<void | boolean>; sending: boolean;
+}) {
+  const parsed = parseGroupDraft(draft, team.employees);
+  const [mentionIndex,setMentionIndex]=useState(0);
+  const [mentionsDismissed,setMentionsDismissed]=useState(false);
+  useEffect(()=>{setMentionIndex(0);setMentionsDismissed(false)},[draft]);
+  const suggestions=mentionsDismissed?[]:groupMentionSuggestions(draft,team.employees);
+  const tagQuery=draft.match(/(?:^|\s)#([\p{L}\p{N}_-]*)$/u)?.[1];
+  const knownTags=[...new Set([...(team.teamMessages??[]).flatMap(message=>message.contextTagIds??[]),...team.employees.flatMap(employee=>employee.activeSession.contextTagIds??[])])];
+  const tagSuggestions=tagQuery===undefined||mentionsDismissed?[]:[...knownTags.filter(tag=>tag.toLowerCase().includes(tagQuery.toLowerCase())),...(tagQuery&&!knownTags.includes(tagQuery)?[tagQuery]:[])];
+  const selectedTag=Math.min(mentionIndex,Math.max(0,tagSuggestions.length-1));
+  const completeTag=(tag:string)=>{setDraft(value=>value.replace(/#[\p{L}\p{N}_-]*$/u,`#${tag} `));inputRef.current?.focus()};
+  const selectedMention=Math.min(mentionIndex,Math.max(0,suggestions.length-1));
+  const mention=(employee:Pick<WeWorkEmployee,'displayName'>)=>{setDraft(value=>completeGroupMention(value,employee.displayName));inputRef.current?.focus()};
+  return <>
+    <GroupMentionList employees={team.employees} suggestions={suggestions} selectedIndex={selectedMention} onSelect={mention} className="mx-4"/>
+    {tagQuery!==undefined&&!mentionsDismissed&&!tagSuggestions.length&&<p role="status" className="mx-4 text-xs text-slate-500">暂无已有标签，输入标签名称后按 Tab 或 Enter 创建。</p>}
+    {tagSuggestions.length>0&&<div role="listbox" aria-label="上下文标签" className="mx-4 max-h-48 overflow-auto rounded-lg border border-slate-200 bg-white p-2 shadow-sm">{tagSuggestions.map((tag,index)=><button key={tag} type="button" role="option" aria-selected={index===selectedTag} onMouseDown={e=>e.preventDefault()} onClick={()=>completeTag(tag)} className={`block w-full rounded-lg px-3 py-2 text-left text-xs ${index===selectedTag?'bg-sky-50 text-sky-700':''}`}>#{tag}{!knownTags.includes(tag)&&' · 新标签'}</button>)}</div>}
+    <ConversationComposer key={team.id} onInputKeyDown={event=>{
+      const count=tagSuggestions.length||suggestions.length;
+      const selected=tagSuggestions.length?selectedTag:selectedMention;
+      if(!count)return;
+      if(['ArrowDown','ArrowUp','Enter','Tab','Escape'].includes(event.key)&&!event.shiftKey){
+        event.preventDefault();event.stopPropagation();
+        if(event.key==='Escape')setMentionsDismissed(true);
+        else if(event.key==='Tab'||event.key==='Enter'){if(tagSuggestions.length)completeTag(tagSuggestions[selectedTag]);else mention(suggestions[selectedMention]);}
+        else setMentionIndex((selected+(event.key==='ArrowDown'?1:-1)+count)%count);
+      }
+    }} inputRef={inputRef} value={draft} onChange={setDraft} onSubmit={submit} disabled={sending} ariaLabel="发送团队消息" placeholder="发送消息… @ 提及助手，# 添加标签" leadingControls={<div className="flex flex-wrap items-center gap-2"><button type="button" aria-label="提及群聊助手" onClick={()=>{setDraft(value=>`${value}${value&&!value.endsWith(' ')?' ':''}@`);inputRef.current?.focus()}} className="grid h-7 w-7 place-items-center rounded-lg text-sm font-semibold text-slate-500 hover:bg-white">@</button><span className="text-[11px] text-slate-500">{parsed.all?'邀请全体助手回复':parsed.recipientId?`邀请 ${parsed.mentioned[0].displayName} 回复`:`#${team.name} · 全员可见`}</span>{parsed.contextTagIds.map(tag=><span key={tag} className="rounded-md bg-sky-50 px-1.5 py-1 text-[11px] text-sky-700">#{tag}</span>)}</div>}/>
+  </>;
 }

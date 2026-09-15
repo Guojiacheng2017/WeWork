@@ -71,7 +71,7 @@ export function ConversationComposer({
   useLayoutEffect(() => {
     const input = inputRef.current;
     if (!input) return;
-    input.style.height = 'auto';
+    input.style.height = '0px';
     input.style.height = `${Math.min(input.scrollHeight, 128)}px`;
   }, [value]);
   const [dismissed, setDismissed] = useState(false);
@@ -171,7 +171,7 @@ export function ConversationComposer({
             }
           }}
           placeholder={placeholder}
-          className={`max-h-32 min-h-12 w-full resize-none bg-transparent py-1 leading-5 outline-none placeholder:text-slate-400 ${inputClassName}`}
+          className={`max-h-32 min-h-0 w-full resize-none bg-transparent py-1 leading-5 outline-none placeholder:text-slate-400 ${inputClassName}`}
         />
         <div className="composer-toolbar mt-2 flex min-h-8 items-center gap-2">
           <div className="flex min-w-0 items-center gap-2"><button type="button" aria-label="添加图片或文件" disabled={disabled || busy || uploading} onClick={() => fileRef.current?.click()} className="grid h-8 w-8 place-items-center rounded-full text-slate-500 hover:bg-slate-100"><Paperclip size={18}/></button>{commands.length > 0 && <button type="button" aria-label="打开命令菜单" disabled={busy || disabled} onClick={() => { if (value && !value.startsWith('/')) { setFeedback('请先发送或保留当前草稿，再输入 / 使用命令。'); return; } change('/'); inputRef.current?.focus(); }} className="h-8 w-8 rounded-full text-lg text-slate-500 hover:bg-white">＋</button>}{leadingControls}</div>
