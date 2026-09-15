@@ -1,3 +1,4 @@
+import type { WorkflowExecutionState } from './workflowExecution';
 import type { CollaborationDelivery, Handoff } from '../local/collaborationState';
 import type { WorkRecords } from '../local/workContext';
 import type { CollaborationDatabase, TeamModuleRegistry } from './collaboration';
@@ -357,6 +358,8 @@ export type WorkTypeDefinition = {
 };
 
 export type WeWorkTeam = {
+  /** Read-only Host projection. Execution ownership stays in the Host registry. */
+  workflowExecutions?: WorkflowExecutionState[];
   workflowLeadSkillMigrated?: boolean;
   weworkSessionId?: string;
   archivedAt?: string;

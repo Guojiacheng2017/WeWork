@@ -85,14 +85,19 @@ export function createLocalWeWorkApi(
   options: { storageKey?: string } = {},
 ) {
   const key = options.storageKey ?? 'wework.local.v1';
+  let cachedRaw: string | null | undefined;
+  let cachedState: LocalState | undefined;
   const read = (): LocalState => {
     const raw = storage.getItem(key);
+    if (cachedState && raw === cachedRaw) return clone(cachedState);
     const state = raw ? JSON.parse(raw) : { teams: [], runtimeProfiles: [], eventCursor: 0 };
     if (!Array.isArray(state.runtimeProfiles) || !Number.isSafeInteger(state.eventCursor) || state.eventCursor < 0) throw new Error('invalid local snapshot');
     state.runtimeProfiles = state.runtimeProfiles.map((profile: unknown) => normalizeRuntimeProfile(profile));
     const teamsBeforeMigration = JSON.stringify(state.teams);
     state.teams = normalizeTeams(state.teams);
     if (migrateSessionExecution(state) || teamsBeforeMigration !== JSON.stringify(state.teams)) storage.setItem(key, JSON.stringify(state));
+    cachedRaw = storage.getItem(key);
+    cachedState = clone(state);
     return state;
   };
   const write = (state: LocalState) => {
@@ -144,8 +149,8 @@ export function createLocalWeWorkApi(
     else { employee.currentWorkItem = assigned; employee.status = 'working'; }
     return assigned;
   };
-  const reconcileWorkflow = (team: WeWorkTeam) => {
-    const workflow = team.workflow;
+  const reconcileWorkflow = (team: WeWorkTeam, workflowId = team.workflow?.id) => {
+    const workflow = team.workflows?.find(candidate => candidate.id === workflowId) ?? (team.workflow?.id === workflowId ? team.workflow : undefined);
     if (!workflow) return;
     const completedByNode = new Map<string, WorkItem>();
     for (const employee of team.employees) for (const work of employee.completedWorkItems ?? []) {
@@ -240,7 +245,17 @@ export function createLocalWeWorkApi(
       write(state); return { imported: true };
     },
     snapshot: async (options?: { includeArchived?: boolean }) => {
-      const state = clone(read());
+      const state = read();
+      // Project submitted outputs immediately without completing or releasing nodes.
+      for (const team of state.teams) {
+        const works = team.employees.flatMap(employee => [...(employee.currentWorkItem ? [employee.currentWorkItem] : []), ...(employee.completedWorkItems ?? [])]);
+        for (const graph of [...(team.workflows ?? []), ...(team.workflow ? [team.workflow] : [])]) {
+          for (const node of graph.nodes) {
+            const work = works.find(candidate => candidate.id === node.workItemId);
+            if (work) node.outputDocumentIds = work.records?.deliverables.at(-1)?.documentIds ?? [];
+          }
+        }
+      }
       if (!options?.includeArchived) state.teams = state.teams.filter((team) => !team.archivedAt);
       return state;
     },
@@ -476,7 +491,7 @@ export function createLocalWeWorkApi(
       if (located.location === 'pending') located.team.pendingWorks = located.team.pendingWorks.filter((work) => work.id !== workId);
       if (located.location === 'queued' && located.employee) located.employee.queuedWorkItems = located.employee.queuedWorkItems?.filter((work) => work.id !== workId);
       if (located.location === 'current' && located.employee) { located.employee.currentWorkItem = undefined; promoteNext(located.employee); }
-      const workflowNode = located.team.workflow?.nodes.find((node) => node.workItemId === workId);
+      const workflowNode = (located.team.workflows ?? (located.team.workflow ? [located.team.workflow] : [])).find(flow => flow.id === located.work.workflowId)?.nodes.find(node => node.workItemId === workId);
       if (workflowNode) { workflowNode.status = 'blocked'; workflowNode.blockedReason = '关联工作项已取消'; }
       return located.work;
     }),
@@ -488,7 +503,7 @@ export function createLocalWeWorkApi(
       const completed = { ...employee.currentWorkItem, status: 'completed' as const };
       employee.completedWorkItems = [...(employee.completedWorkItems ?? []), completed];
       promoteNext(employee);
-      reconcileWorkflow(team);
+      reconcileWorkflow(team, completed.workflowId);
       return completed;
     }),
     returnCurrent: async (employeeId: string) => mutate((state) => {
@@ -497,7 +512,7 @@ export function createLocalWeWorkApi(
       const returned = { ...employee.currentWorkItem, status: 'pending' as const, assignedEmployeeId: undefined };
       team.pendingWorks.push(returned);
       promoteNext(employee);
-      const workflowNode = team.workflow?.nodes.find((node) => node.workItemId === returned.id);
+      const workflowNode = (team.workflows ?? (team.workflow ? [team.workflow] : [])).find(flow => flow.id === returned.workflowId)?.nodes.find(node => node.workItemId === returned.id);
       if (workflowNode) { workflowNode.status = 'ready'; workflowNode.blockedReason = '工作项已退回，等待重新指派'; }
       return returned;
     }),

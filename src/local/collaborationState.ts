@@ -3,8 +3,10 @@ import type { MessageItem, WeWorkTeam, WeWorkEmployee, WorkItem } from '../domai
 export type DeliveryStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'uncertain';
 export type CollaborationDelivery = {
   id: string; teamId: string; messageId: string; employeeId: string; status: DeliveryStatus;
-  runId?: string; error?: string; createdAt: string; updatedAt: string;
+  forwardedToDeliveryId?: string; forwardingState?: 'pending' | 'sent' | 'uncertain'; runId?: string; error?: string; createdAt: string; updatedAt: string;
   rootDeliveryId?: string; depth: number; retryOf?: string; requestId?: string;
+  /** Why a queued delivery has not started yet — set by the coordinator each tick. */
+  queueReason?: string; queueReasonAt?: string;
 };
 export type Handoff = {
   id: string; workId: string; fromEmployeeId: string; toEmployeeId: string; note: string;
@@ -139,11 +141,37 @@ export function createCollaborationApi(ports: {
       if (!Number.isInteger(offset) || offset < 0 || offset > message.text.length) throw new Error('invalid message offset');
       return { ...message, text: message.text.slice(offset, offset + 8000), nextOffset: offset + 8000 < message.text.length ? offset + 8000 : null };
     },
+    forwardGroupDelivery: async (teamId: string, deliveryId: string, targetId: string, confirmed = false) => ports.mutate((state) => {
+      const team = teamIn(state, teamId), delivery = deliveryIn(team, deliveryId), target = deliveryIn(team, targetId);
+      if (target.employeeId !== delivery.employeeId || !target.runId || target.status !== 'running') throw new Error('forward target unavailable');
+      if (confirmed) {
+        if (delivery.forwardedToDeliveryId !== targetId || delivery.forwardingState !== 'pending') throw new Error('forward reservation changed');
+        delivery.forwardingState = 'sent'; delivery.status = 'running';
+      } else {
+        if (delivery.status !== 'queued') throw new Error('delivery already reserved');
+        delivery.forwardedToDeliveryId = targetId; delivery.runId = target.runId;
+        delivery.forwardingState = 'pending'; delivery.status = 'uncertain';
+      }
+      delivery.updatedAt = now(); return delivery;
+    }),
     reserveGroupDelivery: async (teamId: string, deliveryId: string, runId: string) => ports.mutate((state) => {
       const team = teamIn(state, teamId), delivery = deliveryIn(team, deliveryId);
       if (delivery.status !== 'queued') throw new Error('delivery already reserved');
       if (state.teams.some((t) => t.collaborationDeliveries?.some((d) => d.employeeId === delivery.employeeId && ['running', 'uncertain'].includes(d.status)))) throw new Error('employee has an unresolved delivery');
-      delivery.status = 'running'; delivery.runId = validText(runId, 300); delivery.updatedAt = now(); return delivery;
+      delivery.status = 'running'; delivery.runId = validText(runId, 300); delivery.updatedAt = now();
+      delete delivery.queueReason; delete delivery.queueReasonAt;
+      return delivery;
+    }),
+    /**
+     * Record why a queued delivery is still waiting. Purely observational: the
+     * coordinator rewrites it every tick, and it is cleared the moment the
+     * delivery is reserved or finished, so it can never mask a real status.
+     */
+    noteGroupDelivery: async (teamId: string, deliveryId: string, reason: string) => ports.mutate((state) => {
+      const team = teamIn(state, teamId), delivery = deliveryIn(team, deliveryId);
+      if (delivery.status !== 'queued') return delivery;
+      delivery.queueReason = validText(reason, 300); delivery.queueReasonAt = now();
+      return delivery;
     }),
     finishGroupDelivery: async (teamId: string, deliveryId: string, runId: string, outcome: { status: Exclude<DeliveryStatus, 'queued' | 'running'>; finalText?: string; error?: string }) => ports.mutate((state) => {
       const team = teamIn(state, teamId), delivery = deliveryIn(team, deliveryId);

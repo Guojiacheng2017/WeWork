@@ -1,3 +1,4 @@
+import { controlWorkflowWork } from '../api/workflowControl';
 import { operationErrorMessage } from '../domain/operationError';
 import { employeeErrorKey } from '../domain/employeeWorkStatus';
 import { create } from 'zustand';
@@ -81,6 +82,7 @@ interface WeWorkState {
   setTeamLead: (teamId: string, employeeId: string) => void;
   saveWorkflow: (teamId: string, workflow: WorkflowTemplate) => Promise<void>;
   startWorkflow: (teamId: string) => Promise<void>;
+  continueWorkflowWork: (teamId: string, workflowId: string, continueWork: boolean) => Promise<void>;
   createWorkflow: (teamId: string, input: { name: string; description?: string; temporary?: boolean; workTypeId?: string; leadEmployeeId?: string; participantEmployeeIds?: string[]; sourceWorkflowId?: string; workId?: string }) => Promise<void>;
   configureWorkType: (teamId: string, input: Omit<WorkTypeDefinition, 'contextTagId'>) => Promise<void>;
   selectWorkflow: (teamId: string, workflowId: string) => Promise<void>;
@@ -332,7 +334,11 @@ export const useWeWorkStore = create<WeWorkState>()((set, get) => ({
 
   dispatchWorkToEmployee: (workItemId, targetEmployeeId) => {
     set({ draggingWorkItemId: null, dragHoveredEmployeeId: null });
-    void weworkApi.assignWork(workItemId, targetEmployeeId).then(async () => { await get().hydrate(); if (runScheduler) await runScheduler.startCurrentWork(targetEmployeeId); }).catch(async (error) => {
+    void weworkApi.assignWork(workItemId, targetEmployeeId).then(async () => {
+      await get().hydrate();
+      const currentWork = get().teams.flatMap(team => team.employees).find(employee => employee.id === targetEmployeeId)?.currentWorkItem;
+      if (runScheduler && !(hostManagedWeWork && currentWork?.workflowId)) await runScheduler.startCurrentWork(targetEmployeeId);
+    }).catch(async (error) => {
       await get().hydrate();
       reportError(set, error);
     });
@@ -346,7 +352,7 @@ export const useWeWorkStore = create<WeWorkState>()((set, get) => ({
   completeCurrentWork: (employeeId) => {
     void weworkApi.completeCurrent(employeeId).then(async () => {
       await get().hydrate();
-      if (!runScheduler) return;
+      if (!runScheduler || hostManagedWeWork) return;
       const candidates = get().teams.flatMap((team) => team.employees).filter((employee) => employee.currentWorkItem?.workflowNodeId);
       await Promise.allSettled(candidates.map((employee) => runScheduler!.startCurrentWork(employee.id)));
     }).catch((error) => reportError(set, error, employeeId));
@@ -494,11 +500,19 @@ export const useWeWorkStore = create<WeWorkState>()((set, get) => ({
     }
   },
 
+  continueWorkflowWork: async (teamId, workflowId, continueWork) => {
+    try {
+      const host = hostManagedWeWork ? window.weworkHost as import('../api/hostWeWorkApi').HostWeWorkBridge : undefined;
+      await controlWorkflowWork(host, teamId, workflowId, continueWork);
+      await get().hydrate();
+    } catch (error) { reportError(set, error); throw error; }
+  },
+
   startWorkflow: async (teamId) => {
     try {
       await weworkApi.startWorkflow(teamId);
       await get().hydrate();
-      if (runScheduler) {
+      if (runScheduler && !hostManagedWeWork) {
         const team = get().teams.find((candidate) => candidate.id === teamId);
         await Promise.allSettled((team?.employees ?? []).filter((employee) => employee.currentWorkItem?.workflowNodeId).map((employee) => runScheduler!.startCurrentWork(employee.id)));
       }

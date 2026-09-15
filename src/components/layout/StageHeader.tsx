@@ -1,15 +1,13 @@
-import { weworkHost, type PluginManifest } from '../../runtime/weworkHost';
 import { PLANE_PLUGIN_ID } from '../../domain/collaboration';
-import { useEffect, useState, useLayoutEffect, useRef } from 'react';
+import { useState, useLayoutEffect, useRef } from 'react';
 import { useWeWorkStore } from '../../state/weworkStore';
 import { CircleDot, GitFork, Layers, Users } from 'lucide-react';
-import { Badge, Button, Select } from '../ui';
-import { projectPluginName, projectPluginViews } from '../project/projectNavigation';
+import { Badge, Select } from '../ui';
+import { projectPluginName, projectPluginViews, usePluginCatalog } from '../project/projectNavigation';
 
 export function StageHeader({ onPluginSelect }: { onPluginSelect: (plugin: { id: string; name: string; description: string } | null) => void }) {
-  const [catalog, setCatalog] = useState<PluginManifest[]>([]);
+  const catalog = usePluginCatalog();
   const [selection, setSelection] = useState<Record<string, string>>({});
-  useEffect(() => { void weworkHost.plugins().then(setCatalog).catch(() => {}); }, []);
   const capsuleRef = useRef<HTMLElement>(null);
   const [indicator, setIndicator] = useState({ left: 4, width: 0, visible: false });
   useLayoutEffect(() => {
@@ -74,19 +72,14 @@ export function StageHeader({ onPluginSelect }: { onPluginSelect: (plugin: { id:
         <span aria-hidden="true" className="stage-view-capsule-indicator" style={{ width: indicator.width, transform: `translateX(${indicator.left - 4}px)`, opacity: indicator.visible ? 1 : 0 }} />
         <button type="button" aria-current={topology === 'roundTable' ? 'page' : undefined} onClick={() => setTopology('roundTable')}><CircleDot size={14} /><span>圆桌</span></button>
         <button type="button" aria-current={topology === 'workflowDag' ? 'page' : undefined} onClick={() => setTopology('workflowDag')}><GitFork size={14} /><span>工作流</span></button>
+        <button type="button" aria-current={topology === 'teamManagement' ? 'page' : undefined} onClick={() => setTopology('teamManagement')}><Users size={14} /><span>团队</span></button>
         {enabledPlugins.length > 0 && <Select className="stage-plugin-select" label="选择团队插件" value={selectedPlugin.value} options={enabledPlugins.map(item => ({ ...item, icon: <Layers size={14} /> }))} aria-current={pluginSelected ? 'page' : undefined} onClick={event => {
           if (!pluginSelected) {
             event.preventDefault();
             activatePlugin(selectedPlugin.value);
           }
         }} onChange={activatePlugin}  />}
-
       </nav>
-      <span className="h-5 w-px bg-slate-200" />
-      <Button type="button" variant={topology === 'teamManagement' ? 'secondary' : 'ghost'}
-        aria-current={topology === 'teamManagement' ? 'page' : undefined} onClick={() => setTopology('teamManagement')}>
-        <Users size={14} /><span>团队管理</span>
-      </Button>
     </div>
   </header>;
 }
