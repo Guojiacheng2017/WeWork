@@ -29,6 +29,8 @@ test('Pi RPC uses Harness-owned auth/default model and bridges WeWork tools', as
   const tool = { name: 'wework_report_progress', label: 'Progress', description: 'Report progress', parameters: { type: 'object', properties: {}, additionalProperties: false }, async execute(callId, args) { invocation = { callId, args }; return { content: [{ type: 'text', text: 'ok' }] }; } };
   const spawnProcess = fakeRpc(async ({ args, options }) => {
     assert.equal(args.includes('--api-key'), false); assert.equal(args.includes('--provider'), false); assert.equal(args.includes('--model'), false);
+    assert.ok(['--no-extensions', '--no-skills', '--no-prompt-templates', '--no-context-files'].every((flag) => args.includes(flag)));
+    assert.deepEqual(args.slice(args.indexOf('--extension'), args.indexOf('--extension') + 2), ['--extension', '/tmp/pi-wework-extension.mjs']);
     assert.ok(options.env.PATH.startsWith(`${dirname(process.execPath)}:`));
     const definitions = JSON.parse(Buffer.from(options.env.WEWORK_PI_TOOL_DEFINITIONS, 'base64').toString()); assert.equal(definitions[0].name, tool.name);
     const response = await fetch(options.env.WEWORK_PI_TOOL_URL, { method: 'POST', headers: { authorization: `Bearer ${options.env.WEWORK_PI_TOOL_TOKEN}`, 'content-type': 'application/json' }, body: JSON.stringify({ name: tool.name, callId: 'call-1', arguments: {} }) }); assert.equal(response.status, 200);
