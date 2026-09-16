@@ -2,8 +2,9 @@ import { spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { scrubHostChildEnvironment } from './process.js';
+import { scrubHostChildEnvironment, withExecutableOnPath } from './process.js';
 import { windowsCommandInvocation } from '../windows-command.js';
+import { harnessExecutableCandidates } from './harness-executable.js';
 
 const CAPABILITIES = Object.freeze({
   pi: { streaming: true, resumeSession: true, cancellation: true, workspace: true, tools: true },
@@ -28,7 +29,6 @@ const CONFIG_FILES = Object.freeze({
 
 const firstString = (...values) => values.find((value) => typeof value === 'string' && value.trim())?.trim();
 const errorText = (error) => `${error?.code ? `${error.code}: ` : ''}${error instanceof Error ? error.message : String(error)}`;
-const macOsExecutableCandidates = (command) => [`/opt/homebrew/bin/${command}`, `/usr/local/bin/${command}`];
 
 function parseConfiguration(harness, text, env) {
   if (harness === 'claude-code') {
@@ -91,14 +91,16 @@ export class HarnessDetector {
         diagnostics.lookupError = errorText(error);
       }
       const locatedCandidates = located?.stdout?.split(/\r?\n/).map((line) => line.trim()).filter(Boolean) ?? [];
-      const candidates = [...new Set([...locatedCandidates, ...(this.platform === 'darwin' ? macOsExecutableCandidates(spec.command) : [])])];
+      const fallbackCandidates = this.platform === 'win32' ? [] : await harnessExecutableCandidates(spec.command, { platform: this.platform, environment: {}, home: this.home });
+      const candidates = [...new Set([...locatedCandidates, ...fallbackCandidates])];
       diagnostics.candidates = candidates;
       if (!candidates.length) throw new Error('empty executable path');
       for (const executablePath of candidates) try {
         const invocation = this.platform === 'win32'
           ? windowsCommandInvocation(executablePath, ['--version'], this.windowsCommandWrapperPath)
           : { file: executablePath, args: ['--version'] };
-        const versionResult = await this.run(invocation.file, invocation.args, { timeoutMs: 1500, environment });
+        const versionEnvironment = withExecutableOnPath(environment, executablePath, this.platform);
+        const versionResult = await this.run(invocation.file, invocation.args, { timeoutMs: 1500, environment: versionEnvironment });
         const version = `${versionResult.stdout || versionResult.stderr}`.trim().split(/\r?\n/)[0] || undefined;
         const adapted = spec.harness === 'pi';
         return { id: `harness:${spec.harness}`, harness: spec.harness, kind: spec.kind, available: true, executionReady: adapted, weworkToolsReady: adapted, reason: adapted ? 'Verified through the WeWork Pi RPC adapter' : 'Installed; no verified WeWork execution adapter', executablePath, version, diagnostics, capabilities: adapted ? CAPABILITIES[spec.harness] : {streaming:false,resumeSession:false,cancellation:false,workspace:false,tools:false}, configuration: await this.configuration(spec.harness) };

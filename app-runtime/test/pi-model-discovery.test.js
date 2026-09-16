@@ -23,5 +23,5 @@ test('Pi catalog is discovered from its RPC state without exposing connection se
   assert.equal(result.defaults.pi, result.models[0].id);
   assert.equal('baseUrl' in result.models[0], false);
   assert.equal('credentialRef' in result.models[0], false);
-  assert.deepEqual(spawned.options.env, { PATH: '/bin' });
+  assert.deepEqual(spawned.options.env, { PATH: '/usr/local/bin:/bin' });
 });

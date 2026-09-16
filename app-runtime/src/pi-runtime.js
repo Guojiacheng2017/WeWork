@@ -2,22 +2,20 @@ import { readPiJsonLines } from './pi-json-lines.js';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
-import { access, stat } from 'node:fs/promises';
-import { delimiter, isAbsolute, join } from 'node:path';
+import { stat } from 'node:fs/promises';
+import { isAbsolute } from 'node:path';
 import { HostError } from './host/errors.js';
-import { scrubHostChildEnvironment } from './host/process.js';
+import { withExecutableOnPath } from './host/process.js';
 import { buildWorkPrompt } from './runtime.js';
 import { loadEmployeeSkills } from './skill-loader.js';
 import { windowsCommandInvocation } from './windows-command.js';
+import { resolveHarnessExecutable } from './host/harness-executable.js';
 
 const respond = (res, status, value) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(value)); };
 
 async function resolveExecutable(options = {}) {
-  if (options.executablePath) { await access(options.executablePath); return options.executablePath; }
-  for (const directory of String(options.env?.PATH ?? process.env.PATH ?? '').split(delimiter)) for (const name of process.platform === 'win32' ? ['pi.exe', 'pi.cmd', 'pi'] : ['pi']) {
-    const path = join(directory, name); try { await access(path); return path; } catch {}
-  }
-  throw new HostError('PI_NOT_INSTALLED', 'Pi executable was not found on this device', 409);
+  try { return await resolveHarnessExecutable('pi', { executablePath: options.executablePath, platform: options.platform ?? process.platform, environment: { ...process.env, ...options.env }, home: options.home }); }
+  catch { throw new HostError('PI_NOT_INSTALLED', 'Pi executable was not found on this device', 409); }
 }
 
 async function createToolBridge(tools, signal, checkNativeTool) {
@@ -70,7 +68,7 @@ export async function executePiRun(spec, options = {}) {
   const selectedModel = spec.runtimeProfile.model?.modelId;
   if (selectedModel && selectedModel !== 'default') args.push('--model', spec.runtimeProfile.model.provider && spec.runtimeProfile.model.provider !== 'pi' ? `${spec.runtimeProfile.model.provider}/${selectedModel}` : selectedModel);
   if (spec.runtimeProfile.thinkingLevel && spec.runtimeProfile.thinkingLevel !== 'off') args.push('--thinking', spec.runtimeProfile.thinkingLevel);
-  const env = scrubHostChildEnvironment({ ...process.env, ...options.env, WEWORK_PI_TOOL_URL: bridge.url, WEWORK_PI_TOOL_TOKEN: bridge.token, WEWORK_PI_TOOL_DEFINITIONS: Buffer.from(JSON.stringify(bridge.definitions)).toString('base64') });
+  const env = withExecutableOnPath({ ...process.env, ...options.env, WEWORK_PI_TOOL_URL: bridge.url, WEWORK_PI_TOOL_TOKEN: bridge.token, WEWORK_PI_TOOL_DEFINITIONS: Buffer.from(JSON.stringify(bridge.definitions)).toString('base64') }, executable, options.platform ?? process.platform);
   const invocation = (options.platform ?? process.platform) === 'win32'
     ? windowsCommandInvocation(executable, args, options.windowsCommandWrapperPath)
     : { file: executable, args };

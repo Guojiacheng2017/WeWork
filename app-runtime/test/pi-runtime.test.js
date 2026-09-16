@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { executePiRun } from '../src/pi-runtime.js';
 
 const spec = (workspace = process.cwd()) => ({ id: 'pi-run', employeeId: 'employee', runtimeProfile: { id: 'pi-config', adapter: 'pi', model: { provider: 'pi', modelId: 'default' }, systemPrompt: 'Be precise.', thinkingLevel: 'medium' }, employee: { displayName: 'Pi Worker', roleName: 'Engineer' }, work: { title: 'Task', goal: 'Finish it' }, workspace: { kind: 'local', rootPath: workspace }, session: { id: 'wework-session' } });
@@ -29,6 +29,7 @@ test('Pi RPC uses Harness-owned auth/default model and bridges WeWork tools', as
   const tool = { name: 'wework_report_progress', label: 'Progress', description: 'Report progress', parameters: { type: 'object', properties: {}, additionalProperties: false }, async execute(callId, args) { invocation = { callId, args }; return { content: [{ type: 'text', text: 'ok' }] }; } };
   const spawnProcess = fakeRpc(async ({ args, options }) => {
     assert.equal(args.includes('--api-key'), false); assert.equal(args.includes('--provider'), false); assert.equal(args.includes('--model'), false);
+    assert.ok(options.env.PATH.startsWith(`${dirname(process.execPath)}:`));
     const definitions = JSON.parse(Buffer.from(options.env.WEWORK_PI_TOOL_DEFINITIONS, 'base64').toString()); assert.equal(definitions[0].name, tool.name);
     const response = await fetch(options.env.WEWORK_PI_TOOL_URL, { method: 'POST', headers: { authorization: `Bearer ${options.env.WEWORK_PI_TOOL_TOKEN}`, 'content-type': 'application/json' }, body: JSON.stringify({ name: tool.name, callId: 'call-1', arguments: {} }) }); assert.equal(response.status, 200);
   });

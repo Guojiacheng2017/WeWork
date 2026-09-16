@@ -1,12 +1,12 @@
 import { readPiJsonLines } from '../pi-json-lines.js';
 import { spawn } from 'node:child_process';
-import { scrubHostChildEnvironment } from './process.js';
+import { withExecutableOnPath } from './process.js';
 
 const rpcArgs = ['--mode', 'rpc', '--no-session', '--no-extensions', '--no-skills', '--no-prompt-templates', '--no-context-files', '--no-approve'];
 
 export function discoverPiModels(executablePath, { spawnProcess = spawn, timeoutMs = 10000, environment = process.env } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawnProcess(executablePath, rpcArgs, { shell: false, windowsHide: true, env: scrubHostChildEnvironment(environment), stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawnProcess(executablePath, rpcArgs, { shell: false, windowsHide: true, env: withExecutableOnPath(environment, executablePath), stdio: ['pipe', 'pipe', 'pipe'] });
     const pending = new Map(); let closeLines; let stderr = ''; let closed = false;
     const finish = (error, value) => { if (closed) return; closed = true; closeLines?.(); clearTimeout(timer); if (child.exitCode === null && !child.killed) child.kill('SIGTERM'); error ? reject(error) : resolve(value); };
     const timer = setTimeout(() => finish(Object.assign(new Error('Pi model discovery timed out'), { code: 'PI_MODEL_DISCOVERY_TIMEOUT' })), timeoutMs);

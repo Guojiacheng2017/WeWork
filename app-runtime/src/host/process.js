@@ -1,7 +1,16 @@
 import { spawn } from "node:child_process";
+import { delimiter, dirname } from 'node:path';
 export function scrubHostChildEnvironment(environment = process.env) {
   const result = { ...environment };
   for (const key of Object.keys(result)) if (key.startsWith('WEWORK_HOST_')) delete result[key];
+  return result;
+}
+export function withExecutableOnPath(environment, executablePath, platform = process.platform) {
+  const result = scrubHostChildEnvironment(environment);
+  if (platform === 'win32' || !executablePath?.includes('/')) return result;
+  const directory = dirname(executablePath);
+  const path = result.PATH ?? '';
+  result.PATH = [directory, ...path.split(delimiter).filter((entry) => entry && entry !== directory)].join(delimiter);
   return result;
 }
 export function execProcess(file, args, options = {}) {

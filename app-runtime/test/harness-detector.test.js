@@ -24,10 +24,13 @@ test('macOS finds Pi in Homebrew when the desktop PATH lookup misses it', async 
   const detector = new HarnessDetector({
     platform: 'darwin',
     env: { PATH: '/usr/bin:/bin' },
-    run: async (file, args) => {
+    run: async (file, args, options) => {
       calls.push([file, args]);
       if (file === 'which' && args[0] === 'pi') throw Object.assign(new Error('pi not found'), { code: 1 });
-      if (file === '/opt/homebrew/bin/pi' && args[0] === '--version') return { stdout: '0.84.3\n' };
+      if (file === '/opt/homebrew/bin/pi' && args[0] === '--version') {
+        assert.match(options.environment.PATH, /^\/opt\/homebrew\/bin:/);
+        return { stdout: '0.84.3\n' };
+      }
       throw Object.assign(new Error('missing'), { code: 'ENOENT' });
     },
   });
@@ -200,5 +203,7 @@ test('CLI lookup and version probes never receive the Host bearer environment', 
 
   await detector.detect();
   assert.ok(environments.length >= 2);
-  assert.ok(environments.every((environment) => environment.PATH === '/bin' && environment.WEWORK_HOST_TOKEN === undefined && environment.WEWORK_HOST_PORT === undefined));
+  assert.ok(environments.every((environment) => environment.WEWORK_HOST_TOKEN === undefined && environment.WEWORK_HOST_PORT === undefined));
+  assert.equal(environments[0].PATH, '/bin');
+  assert.ok(environments.some((environment) => environment.PATH.startsWith('/opt:')));
 });
