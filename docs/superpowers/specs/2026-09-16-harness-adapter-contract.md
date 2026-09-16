@@ -6,7 +6,7 @@ WeWork core will not contain one permanent integration branch per Harness. All H
 
 A Harness that implements WHP may connect directly. A Harness with another native API uses a thin out-of-process adapter that translates between WHP and the native CLI/RPC/HTTP protocol. WeWork Core communicates only with WHP and never imports Harness-specific SDK code.
 
-The contract sits below Capability Governance. Passing the process protocol is necessary but insufficient for `executionReady`: the adapter must also prove ambient capability containment, authentication ownership, model ownership, resumable session isolation, cancellation acknowledgement and Broker-only external capability access.
+The contract sits below Capability Governance. Passing the process protocol is necessary but insufficient for `executionReady`: the adapter must also prove ambient capability containment, authentication ownership, model ownership, resumable session isolation, cancellation acknowledgement and Broker-only external capability access. The protocol never creates or requests a copy of the native Session.
 
 ## Adapter descriptor
 
@@ -63,7 +63,7 @@ The default WHP transport is stdio JSON-RPC 2.0, one UTF-8 JSON object per line.
 - `harness/probe`: return installation, native auth status, Harness version and containment evidence.
 - `models/list`: return safe model identifiers/default only; never endpoints or credentials.
 - `capabilities/list`: return metadata only; every new item is `unreviewed` in WeWork.
-- `run/start`: consume a `RunGrantSnapshot`, projected task input and Broker endpoint; return a native session ID.
+- `run/start`: consume projected task input, current policy references and a Broker endpoint; return a native session ID. Effective grants stay in memory and are not persisted per run.
 - `run/resume`: resume only the supplied native session under the same Harness/employee/profile provenance.
 - `run/cancel`: acknowledge only after the native executor and admitted calls have stopped.
 - `run/steer`: optional and advertised by feature negotiation.
@@ -71,7 +71,7 @@ The default WHP transport is stdio JSON-RPC 2.0, one UTF-8 JSON object per line.
 
 Every request carries `protocolVersion`, `requestId` and the relevant `runId`. Every event carries `runId`, `sequence` and `timestamp`. Unknown optional fields are ignored only within a negotiated minor version; unsupported major versions fail initialization. `run/completed` is valid only after all earlier events and admitted Broker calls are settled.
 
-The adapter never receives the Vault itself. It receives short-lived Broker call authorization scoped to the immutable run grant. Native transcripts and compaction stay inside the Harness; WeWork stores only the native session reference and bounded portable output.
+The adapter never receives the Vault itself. It receives short-lived Broker call authorization scoped to the current Session policy. Native transcripts and compaction stay inside the Harness; WeWork stores only the native session reference and bounded portable output.
 
 ## Registry and readiness
 
@@ -111,7 +111,7 @@ If a native CLI version cannot prove one of these properties, that version remai
 4. Review descriptor, containment evidence and discovered capabilities.
 5. Approve an exact adapter version/hash at device level.
 6. Apply team, employee and task grants through the normal policy compiler.
-7. Create an immutable grant snapshot and start through the standard protocol.
+7. Start through the standard protocol with an in-memory effective grant; persist no per-run copy.
 
 Updating an adapter or its Harness version creates a new review subject. Approval never floats across an unreviewed content hash.
 
