@@ -28,6 +28,7 @@ const CONFIG_FILES = Object.freeze({
 
 const firstString = (...values) => values.find((value) => typeof value === 'string' && value.trim())?.trim();
 const errorText = (error) => `${error?.code ? `${error.code}: ` : ''}${error instanceof Error ? error.message : String(error)}`;
+const macOsExecutableCandidates = (command) => [`/opt/homebrew/bin/${command}`, `/usr/local/bin/${command}`];
 
 function parseConfiguration(harness, text, env) {
   if (harness === 'claude-code') {
@@ -86,9 +87,11 @@ export class HarnessDetector {
       let located;
       try { located = await this.run(lookup, [spec.command], { timeoutMs: 1000, environment }); }
       catch (error) {
-        return { id: `harness:${spec.harness}`, harness: spec.harness, kind: spec.kind, available: false, executionReady:false, weworkToolsReady:false, reason: `${diagnostics.lookupCommand} 失败：${errorText(error)}`, diagnostics, capabilities: {streaming:false,resumeSession:false,cancellation:false,workspace:false,tools:false} };
+        if (this.platform !== 'darwin') return { id: `harness:${spec.harness}`, harness: spec.harness, kind: spec.kind, available: false, executionReady:false, weworkToolsReady:false, reason: `${diagnostics.lookupCommand} 失败：${errorText(error)}`, diagnostics, capabilities: {streaming:false,resumeSession:false,cancellation:false,workspace:false,tools:false} };
+        diagnostics.lookupError = errorText(error);
       }
-      const candidates = located.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+      const locatedCandidates = located?.stdout?.split(/\r?\n/).map((line) => line.trim()).filter(Boolean) ?? [];
+      const candidates = [...new Set([...locatedCandidates, ...(this.platform === 'darwin' ? macOsExecutableCandidates(spec.command) : [])])];
       diagnostics.candidates = candidates;
       if (!candidates.length) throw new Error('empty executable path');
       for (const executablePath of candidates) try {
@@ -98,7 +101,7 @@ export class HarnessDetector {
         const versionResult = await this.run(invocation.file, invocation.args, { timeoutMs: 1500, environment });
         const version = `${versionResult.stdout || versionResult.stderr}`.trim().split(/\r?\n/)[0] || undefined;
         const adapted = spec.harness === 'pi';
-        return { id: `harness:${spec.harness}`, harness: spec.harness, kind: spec.kind, available: true, executionReady: adapted, weworkToolsReady: adapted, reason: adapted ? 'Verified through the WeWork Pi RPC adapter' : 'Installed; no verified WeWork execution adapter', executablePath, version, capabilities: adapted ? CAPABILITIES[spec.harness] : {streaming:false,resumeSession:false,cancellation:false,workspace:false,tools:false}, configuration: await this.configuration(spec.harness) };
+        return { id: `harness:${spec.harness}`, harness: spec.harness, kind: spec.kind, available: true, executionReady: adapted, weworkToolsReady: adapted, reason: adapted ? 'Verified through the WeWork Pi RPC adapter' : 'Installed; no verified WeWork execution adapter', executablePath, version, diagnostics, capabilities: adapted ? CAPABILITIES[spec.harness] : {streaming:false,resumeSession:false,cancellation:false,workspace:false,tools:false}, configuration: await this.configuration(spec.harness) };
       } catch (error) { diagnostics.attempts.push({ executablePath, error: errorText(error) }); }
       throw new Error(`${candidates.length} 个候选命令均无法运行`);
     } catch (error) {

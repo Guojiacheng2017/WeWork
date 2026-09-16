@@ -19,6 +19,28 @@ test('installed Pi CLI is exposed through the verified WeWork Pi adapter', async
   assert.match(pi.reason, /Pi RPC adapter/);
 });
 
+test('macOS finds Pi in Homebrew when the desktop PATH lookup misses it', async () => {
+  const calls = [];
+  const detector = new HarnessDetector({
+    platform: 'darwin',
+    env: { PATH: '/usr/bin:/bin' },
+    run: async (file, args) => {
+      calls.push([file, args]);
+      if (file === 'which' && args[0] === 'pi') throw Object.assign(new Error('pi not found'), { code: 1 });
+      if (file === '/opt/homebrew/bin/pi' && args[0] === '--version') return { stdout: '0.84.3\n' };
+      throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+    },
+  });
+
+  const pi = (await detector.detect()).find((row) => row.harness === 'pi');
+
+  assert.equal(pi.available, true);
+  assert.equal(pi.executionReady, true);
+  assert.equal(pi.executablePath, '/opt/homebrew/bin/pi');
+  assert.ok(calls.some(([file]) => file === '/opt/homebrew/bin/pi'));
+  assert.equal(pi.diagnostics.lookupError, '1: pi not found');
+});
+
 test('external CLI installation is still not confused with WeWork execution readiness', async () => {
   const detector = new HarnessDetector({run:async(file,args)=> {
     if(file==='which' && args[0]==='claude') return {stdout:'/opt/claude\n'};
