@@ -14,8 +14,8 @@ Connecting or allowing a Harness never authorizes its ambient MCP servers, plugi
 | Pi startup | WeWork extension plus assigned business Skills; native tool admission hook | Before this change, Pi also discovered ambient extensions, Skills, prompt templates and context files. Production admission controls some tool execution but is not an information-isolation boundary |
 | WeWork tools | Closure-bound employee/run identity and Session permission mode checks | Tool catalog is not derived from a four-layer immutable grant; `wework_get_team` exposes every member's Skills and current task goal |
 | Plugin registry | Device enable flag, team enable/configuration, MCP tool permission metadata and per-call Vault resolution | New plugins are effectively device-enabled unless disabled; no `unreviewed` state, employee/task grants, data scopes, network policy, confirmation workflow or complete audit log |
-| Skills | Explicit employee assignment and approved filesystem roots | No common catalog for Harness-native Skills or reviewed version/hash record |
-| Runtime | Adapter/profile checkpoint isolation and cancellation fencing | No unified live capability/data authorization path |
+| Skills | Explicit employee assignment and approved filesystem roots | No common catalog for Harness-native Skills; no reviewed version/hash record or immutable run snapshot |
+| Runtime | Adapter/profile checkpoint isolation and cancellation fencing | No Capability/Data Grant snapshot or policy-version binding |
 
 The immediate Pi correction launches production runs with `--no-extensions --no-skills --no-prompt-templates --no-context-files`. Pi documents that explicit `--extension` paths still load with discovery disabled, so only the run-scoped WeWork bridge remains. Native built-in tools stay subject to the current admission hook until strict-mode tool grants replace it.
 
@@ -98,7 +98,7 @@ Strictness is a team ceiling and may be increased by employee/task policy. A tas
 
 Every MCP/plugin/external native-tool call flows through one broker:
 
-1. Verify the active Session/run identity and compute the effective grant from current policy references.
+1. Verify run identity and immutable grant snapshot.
 2. Recheck current emergency revocation for capability, network and credential use.
 3. Validate declared permission, data class, side effect and confirmation requirement.
 4. Project and size-limit input data.
@@ -109,13 +109,25 @@ Every MCP/plugin/external native-tool call flows through one broker:
 
 MCP tools lacking complete permission, data-scope, side-effect and confirmation declarations remain `unreviewed` and cannot run.
 
-## Session binding, live authorization and revocation
+## Immutable run snapshot and revocation
 
-WeWork must not create per-run or per-Session copies of messages, context, documents, Skills, capability catalogs or policy grants. There is no persisted `RunGrantSnapshot` or equivalent receipt. The durable Session record contains only its existing Harness/native-session binding and references to device/team/employee/task policy records.
+Before process spawn, WeWork persists:
 
-At process start the policy compiler builds an in-memory effective grant. The Capability Broker recomputes or validates the relevant current policy versions on every call, so emergency revocation is immediate. Skill/prompt content is read from the single approved content-addressed catalog entry by hash; it is never copied into a run directory. If policy changes invalidate the in-memory grant, subsequent calls fail or the run is cancelled according to policy.
+```ts
+type RunGrantSnapshot = {
+  id: string;
+  runId: string;
+  harness: { id: HarnessId; version: string };
+  capabilities: Array<{ id: string; version?: string; contentHash?: string; permissions: string[] }>;
+  data: Array<{ class: DataClass; resourceIds: string[]; access: 'read' | 'write' }>;
+  network: { mode: 'none' | 'restricted' | 'public'; destinations: string[] };
+  credentials: Array<{ ref: string; capabilityId: string; purpose: string }>;
+  policyVersions: { device: number; team: number; employee: number; task: number };
+  createdAt: string;
+};
+```
 
-Audit storage is a bounded rolling log of decisions, not a state snapshot. It records IDs, hashes, decision and timestamps only; it never stores Session messages or capability payloads. Retention and byte limits are mandatory.
+Skill/prompt content stays fixed to the snapshot hash for the entire run. Normal policy changes affect the next run. Emergency revocation of an MCP/plugin capability, network destination or credential is checked by the Broker on every subsequent call and takes effect immediately.
 
 ## Implementation phases
 
@@ -124,7 +136,7 @@ Audit storage is a bounded rolling log of decisions, not a state snapshot. It re
 3. **Layered policy compiler:** add device/team/employee/task policy records and a pure intersection compiler with deny-by-default tests.
 4. **Data projection:** classify stored resources and make all WeWork context/tool responses consume the compiled data grant. Fix `wework_get_team` first.
 5. **Broker:** route plugin/MCP/external calls through a single per-call authorization, Vault, filtering and audit boundary.
-6. **Live grants:** compile grants in memory, keep only policy references on the Session, and recheck emergency revocation on every Broker call; do not create per-run state copies.
+6. **Run snapshots:** persist the compiled immutable grant before spawn; inject only snapshot-approved tools/Skills/context; add emergency revocation checks.
 7. **Strict/isolated enforcement:** make strict the recommended team mode, add isolated workspace/network/output enforcement and end-to-end exfiltration tests.
 
 ## Acceptance criteria
@@ -134,5 +146,5 @@ Audit storage is a bounded rolling log of decisions, not a state snapshot. It re
 - Strict Pi/Claude/Codex runs load no ambient configuration and receive no ungranted team data.
 - A forged, stale, revoked or out-of-scope broker call fails before provider invocation.
 - Credentials are absent from Harness argv/env/prompts/checkpoints/audit logs.
-- Every allowed external call has an auditable decision tied to the Session and current policy versions, without copying Session state.
+- Every allowed external call has an auditable decision tied to one immutable run grant.
 - Cross-team, cross-employee, unrelated-chat and unassigned-attachment leakage tests pass.
