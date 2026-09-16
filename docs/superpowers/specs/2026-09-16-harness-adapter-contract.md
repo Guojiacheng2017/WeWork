@@ -63,7 +63,7 @@ The default WHP transport is stdio JSON-RPC 2.0, one UTF-8 JSON object per line.
 - `harness/probe`: return installation, native auth status, Harness version and containment evidence.
 - `models/list`: return safe model identifiers/default only; never endpoints or credentials.
 - `capabilities/list`: return metadata only; every new item is `unreviewed` in WeWork.
-- `run/start`: consume a `RunGrantSnapshot`, projected task input and Broker endpoint; return a native session ID.
+- `run/start`: consume projected task input and a Broker endpoint; return a native session ID.
 - `run/resume`: resume only the supplied native session under the same Harness/employee/profile provenance.
 - `run/cancel`: acknowledge only after the native executor and admitted calls have stopped.
 - `run/steer`: optional and advertised by feature negotiation.
@@ -71,7 +71,7 @@ The default WHP transport is stdio JSON-RPC 2.0, one UTF-8 JSON object per line.
 
 Every request carries `protocolVersion`, `requestId` and the relevant `runId`. Every event carries `runId`, `sequence` and `timestamp`. Unknown optional fields are ignored only within a negotiated minor version; unsupported major versions fail initialization. `run/completed` is valid only after all earlier events and admitted Broker calls are settled.
 
-The adapter never receives the Vault itself. It receives short-lived Broker call authorization scoped to the immutable run grant. Native transcripts and compaction stay inside the Harness; WeWork stores only the native session reference and bounded portable output.
+The adapter never receives the Vault itself. Native transcripts and compaction stay inside the Harness; WeWork stores only the native session reference and bounded portable output.
 
 ## Registry and readiness
 
@@ -111,7 +111,7 @@ If a native CLI version cannot prove one of these properties, that version remai
 4. Review descriptor, containment evidence and discovered capabilities.
 5. Approve an exact adapter version/hash at device level.
 6. Apply team, employee and task grants through the normal policy compiler.
-7. Create an immutable grant snapshot and start through the standard protocol.
+7. Start through the standard protocol.
 
 Updating an adapter or its Harness version creates a new review subject. Approval never floats across an unreviewed content hash.
 
@@ -119,7 +119,7 @@ Updating an adapter or its Harness version creates a new review subject. Approva
 
 1. Introduce Registry and protocol types; register existing Pi and SDH implementations behind compatibility drivers.
 2. Move executable discovery, auth/model probe and dispatch behind Registry so one readiness result is authoritative.
-3. Add the shared Broker MCP transport and immutable grant input.
+3. Add the shared Broker MCP transport.
 4. Ship Claude Code, Codex CLI and Gemini CLI built-in adapter processes.
 5. Remove adapter-name conditionals from Host, RuntimeManager and settings UI.
 6. Open the installed-adapter package path only after signature/hash review, strict-mode and hostile-adapter tests pass.

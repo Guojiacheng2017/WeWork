@@ -12,10 +12,10 @@ Connecting or allowing a Harness never authorizes its ambient MCP servers, plugi
 | --- | --- | --- |
 | Harness policy | Device-level `allowedHarnesses`; currently only Pi and SDH survive persistence | No team, employee or task capability grants |
 | Pi startup | WeWork extension plus assigned business Skills; native tool admission hook | Before this change, Pi also discovered ambient extensions, Skills, prompt templates and context files. Production admission controls some tool execution but is not an information-isolation boundary |
-| WeWork tools | Closure-bound employee/run identity and Session permission mode checks | Tool catalog is not derived from a four-layer immutable grant; `wework_get_team` exposes every member's Skills and current task goal |
+| WeWork tools | Closure-bound employee/run identity and Session permission mode checks | `wework_get_team` exposes every member's Skills and current task goal |
 | Plugin registry | Device enable flag, team enable/configuration, MCP tool permission metadata and per-call Vault resolution | New plugins are effectively device-enabled unless disabled; no `unreviewed` state, employee/task grants, data scopes, network policy, confirmation workflow or complete audit log |
-| Skills | Explicit employee assignment and approved filesystem roots | No common catalog for Harness-native Skills; no reviewed version/hash record or immutable run snapshot |
-| Runtime | Adapter/profile checkpoint isolation and cancellation fencing | No Capability/Data Grant snapshot or policy-version binding |
+| Skills | Explicit employee assignment and approved filesystem roots | No common catalog for Harness-native Skills or reviewed version/hash record |
+| Runtime | Adapter/profile checkpoint isolation and cancellation fencing | Capability authorization is not yet unified |
 
 The immediate Pi correction launches production runs with `--no-extensions --no-skills --no-prompt-templates --no-context-files`. Pi documents that explicit `--extension` paths still load with discovery disabled, so only the run-scoped WeWork bridge remains. Native built-in tools stay subject to the current admission hook until strict-mode tool grants replace it.
 
@@ -98,7 +98,7 @@ Strictness is a team ceiling and may be increased by employee/task policy. A tas
 
 Every MCP/plugin/external native-tool call flows through one broker:
 
-1. Verify run identity and immutable grant snapshot.
+1. Verify run and Session identity.
 2. Recheck current emergency revocation for capability, network and credential use.
 3. Validate declared permission, data class, side effect and confirmation requirement.
 4. Project and size-limit input data.
@@ -109,26 +109,6 @@ Every MCP/plugin/external native-tool call flows through one broker:
 
 MCP tools lacking complete permission, data-scope, side-effect and confirmation declarations remain `unreviewed` and cannot run.
 
-## Immutable run snapshot and revocation
-
-Before process spawn, WeWork persists:
-
-```ts
-type RunGrantSnapshot = {
-  id: string;
-  runId: string;
-  harness: { id: HarnessId; version: string };
-  capabilities: Array<{ id: string; version?: string; contentHash?: string; permissions: string[] }>;
-  data: Array<{ class: DataClass; resourceIds: string[]; access: 'read' | 'write' }>;
-  network: { mode: 'none' | 'restricted' | 'public'; destinations: string[] };
-  credentials: Array<{ ref: string; capabilityId: string; purpose: string }>;
-  policyVersions: { device: number; team: number; employee: number; task: number };
-  createdAt: string;
-};
-```
-
-Skill/prompt content stays fixed to the snapshot hash for the entire run. Normal policy changes affect the next run. Emergency revocation of an MCP/plugin capability, network destination or credential is checked by the Broker on every subsequent call and takes effect immediately.
-
 ## Implementation phases
 
 1. **Contain ambient capability:** ship Pi discovery-disable flags; require equivalent flags/config overlays in Claude Code and Codex adapters.
@@ -136,8 +116,7 @@ Skill/prompt content stays fixed to the snapshot hash for the entire run. Normal
 3. **Layered policy compiler:** add device/team/employee/task policy records and a pure intersection compiler with deny-by-default tests.
 4. **Data projection:** classify stored resources and make all WeWork context/tool responses consume the compiled data grant. Fix `wework_get_team` first.
 5. **Broker:** route plugin/MCP/external calls through a single per-call authorization, Vault, filtering and audit boundary.
-6. **Run snapshots:** persist the compiled immutable grant before spawn; inject only snapshot-approved tools/Skills/context; add emergency revocation checks.
-7. **Strict/isolated enforcement:** make strict the recommended team mode, add isolated workspace/network/output enforcement and end-to-end exfiltration tests.
+6. **Strict/isolated enforcement:** make strict the recommended team mode, add isolated workspace/network/output enforcement and end-to-end exfiltration tests.
 
 ## Acceptance criteria
 
@@ -146,5 +125,5 @@ Skill/prompt content stays fixed to the snapshot hash for the entire run. Normal
 - Strict Pi/Claude/Codex runs load no ambient configuration and receive no ungranted team data.
 - A forged, stale, revoked or out-of-scope broker call fails before provider invocation.
 - Credentials are absent from Harness argv/env/prompts/checkpoints/audit logs.
-- Every allowed external call has an auditable decision tied to one immutable run grant.
+- Every allowed external call has an auditable authorization decision.
 - Cross-team, cross-employee, unrelated-chat and unassigned-attachment leakage tests pass.
