@@ -1,4 +1,7 @@
+import { useConversationScroll } from '../../hooks/useConversationScroll';
 import { TeamGroupComposer } from '../team/TeamManagementView';
+import { TeamExecutionProgress } from '../team/TeamExecutionProgress';
+import { chronologicalEntries } from '../team/groupTimeline';
 import { TeamMessage } from '../team/TeamMessage';
 import { parseGroupDraft } from '../team/groupDraft';
 import type { WeWorkTeam } from '../../domain/wework';
@@ -19,12 +22,12 @@ interface AuxiliaryDrawer {
   onCollapsed?: () => void;
 }
 
-export function PendingWorkBar({ embedded = false, initiallyCollapsed = false, onExpandedChange, onEmbeddedClose, onOpenTeamChat, auxiliaryDrawer }: { embedded?: boolean; initiallyCollapsed?: boolean; onExpandedChange?: (expanded: boolean) => void; onEmbeddedClose?: () => void; onOpenTeamChat?: () => void; auxiliaryDrawer?: AuxiliaryDrawer }) {
+export function PendingWorkBar({ embedded = false, initiallyCollapsed = false, onExpandedChange, onEmbeddedClose, onOpenTeamChat, auxiliaryDrawer, pageOnly = false }: { pageOnly?: boolean; embedded?: boolean; initiallyCollapsed?: boolean; onExpandedChange?: (expanded: boolean) => void; onEmbeddedClose?: () => void; onOpenTeamChat?: () => void; auxiliaryDrawer?: AuxiliaryDrawer }) {
   const [open, setOpen] = useState(true);
   const [selectedWork, setSelectedWork] = useState<WorkItem | null>(null);
   const [creating, setCreating] = useState(false);
   const [assigneeId, setAssigneeId] = useState('');
-  const [tab, setTab] = useState<'work'|'chat'|'auxiliary'|null>(initiallyCollapsed ? null : 'chat');
+  const [tab, setTab] = useState<'work'|'chat'|'auxiliary'|null>(pageOnly ? 'work' : initiallyCollapsed ? null : 'chat');
   const [readMessageCounts, setReadMessageCounts] = useState<Record<string, number>>({});
   const [draft, setDraft] = useState({ title: '', goal: '', priority: 'medium' as WorkItem['priority'], category: 'Digital' as WorkItem['category'], runtimeProfileId: '' });
   const { teams, runtimeProfiles, selectedTeamId, setDraggingWorkItemId, setDragHoveredEmployeeId, createWorkItem, cancelWork, dispatchWorkToEmployee } = useWeWorkStore();
@@ -62,7 +65,7 @@ export function PendingWorkBar({ embedded = false, initiallyCollapsed = false, o
   }
 
   return (
-    <aside className={embedded
+    <aside data-page-only={pageOnly} className={embedded
       ? 'pending-work-drawer relative flex h-full min-h-0 w-full flex-col gap-2 overflow-visible'
       : 'pending-work-drawer absolute bottom-4 right-4 top-4 z-30 flex w-[380px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_8px_24px_rgba(15,23,42,0.08)]'}>
       <div className={`order-0 flex h-16 shrink-0 items-center border border-slate-200 bg-white pr-2 shadow-sm ${tab==='chat'?'rounded-t-2xl border-b-transparent bg-sky-50/60':'rounded-2xl'}`}><button type="button" aria-expanded={tab==='chat'} aria-controls="team-drawer-chat" onClick={()=>setTab('chat')} className="group flex h-full min-w-0 flex-1 items-center gap-3 rounded-2xl px-4 text-left text-slate-700 outline-none transition hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-200"><span className={`grid h-9 w-9 place-items-center rounded-xl ${tab==='chat'?'bg-sky-100 text-sky-700':'bg-slate-100 text-slate-500'}`}><MessageCircle className="h-4 w-4"/></span><span className="min-w-0 flex-1"><strong className="block text-xs">团队群聊</strong><small className="mt-0.5 block text-[10px] font-normal text-slate-400">全员可见 · @ 助手邀请回复</small></span>{tab!=='chat'&&unreadMessages>0&&<span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-sky-600 shadow-sm">{unreadMessages}</span>}<ChevronDown className={`h-4 w-4 transition-transform ${tab==='chat'?'rotate-180':''}`}/></button>{tab==='chat'&&<>{onOpenTeamChat&&<Button variant="ghost" type="button" title="在团队管理中展开群聊" aria-label="在团队管理中展开群聊" onClick={onOpenTeamChat} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-500 hover:bg-sky-50 hover:text-sky-700"><ExternalLink className="h-4 w-4"/></Button>}<Button variant="ghost" type="button" title="关闭群聊" aria-label="关闭团队群聊抽屉" onClick={closeEmbedded} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-sm hover:border-slate-300 hover:bg-slate-50 hover:text-slate-800"><X className="h-4 w-4"/></Button></>}</div>
@@ -112,18 +115,19 @@ export function PendingWorkBar({ embedded = false, initiallyCollapsed = false, o
   );
 }
 
-function SidebarTeamChat({ team }: { team: WeWorkTeam }) {
-  const [draft, setDraft] = useState('');
+export function SidebarTeamChat({ team }: { team: WeWorkTeam }) {
+  const [draft, setDraft] = useState(() => sessionStorage.getItem(`wework.teamDraft:${team.id}`) ?? '');
+  useEffect(() => { sessionStorage.setItem(`wework.teamDraft:${team.id}`, draft); }, [team.id, draft]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const endRef = useRef<HTMLDivElement>(null);
+  const conversation = useConversationScroll(`team:${team.id}`, { messages: team.teamMessages, deliveries: team.collaborationDeliveries });
   const send = useWeWorkStore(state => state.sendTeamMessage);
-  useEffect(() => { setDraft(''); setError(''); }, [team.id]);
-  useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }); }, [team.teamMessages?.length]);
+
+
   const submit = async (message = draft) => {
     if (!message.trim() || sending) return false;
-    const parsed = parseGroupDraft(draft, team.employees);
+    const parsed = parseGroupDraft(message, team.employees);
     if (!parsed.all && parsed.mentioned.length > 1) { setError('请一次 @ 一位助手；不带 @ 的消息全员可见。'); return false; }
     setSending(true); setError('');
     try { await send(team.id, message.trim(), parsed.recipientId, parsed.contextTagIds); setDraft(current => current === draft ? '' : current); }
@@ -131,10 +135,15 @@ function SidebarTeamChat({ team }: { team: WeWorkTeam }) {
     finally { setSending(false); }
   };
   return <div className="flex h-full min-h-0 flex-col">
-    <div aria-label="团队群聊消息" className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
+    <div ref={conversation.ref} onScroll={conversation.onScroll} aria-label="团队群聊消息" className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
       {!team.teamMessages?.length && <p className="text-center text-xs text-slate-400">发送第一条群聊消息，所有成员可见，@ 助手可邀请回复</p>}
-      {team.teamMessages?.map(message => <TeamMessage compact key={message.id} team={team} message={message}/>)}
-      <div ref={endRef} />
+      {chronologicalEntries([
+        ...(team.teamMessages ?? []).map(message => ({ kind: 'message' as const, time: message.time, message })),
+        ...(team.collaborationDeliveries ?? []).filter(delivery => ['running', 'queued'].includes(delivery.status) && delivery.forwardingState !== 'sent').map(delivery => ({ kind: 'execution' as const, time: delivery.createdAt, delivery })),
+      ]).map(entry => entry.kind === 'message'
+        ? <TeamMessage compact key={entry.message.id} team={team} message={entry.message} />
+        : <TeamExecutionProgress key={entry.delivery.id} team={team} delivery={entry.delivery} />)}
+
     </div>
     {error && <p role="alert" className="px-4 text-xs text-rose-600">{error}</p>}
     <TeamGroupComposer team={team} draft={draft} setDraft={setDraft} inputRef={inputRef} submit={submit} sending={sending} />

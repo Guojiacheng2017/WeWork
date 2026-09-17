@@ -5,7 +5,9 @@ import { parentWorkflows } from './graphHierarchy';
 import { executionBlockerForWork, workflowBlockerMessage } from '../../domain/workflowExecution';
 import { ParticipationDetail, findParticipationWork } from './ParticipationDetail';
 import { Dialog, DialogFooter, Button, Input, NativeSelect, Textarea } from '../ui';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { WorkspacePanelContext } from '../workspace/WorkspacePanelContext';
+import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle, CheckCircle2, ChevronUp, ChevronDown, Clock, Layers, Maximize2, Minus, MousePointer2,
   PlayCircle, Plus, Search, X, Settings2, Sparkles, Trash2, GitBranch, PanelRight, GripVertical, Pin, SquarePlus, Save, Undo2, Redo2, Copy, ListChecks, History,
@@ -16,13 +18,12 @@ import { EmployeeBotAvatar } from '../employee/EmployeeBotAvatar';
 import { clampDagZoom, dagNodeDisplayMode } from './workflowSemanticZoom';
 
 interface WorkflowDagStageProps {
+  active?: boolean;
   workflow?: WorkflowTemplate;
   workflows?: WorkflowTemplate[];
   employees: WeWorkEmployee[];
-  pendingPanelVisible: boolean;
-  pendingPanelWidth: number;
-  onPendingPanelWidthChange: (width: number) => void;
-  onOpenTeamChat: () => void;
+  pendingPanelVisible?: boolean;
+  pendingPanelWidth?: number;
 }
 type Point = { x: number; y: number };
 type NodePositions = Record<string, Point>;
@@ -73,7 +74,7 @@ function edgePath(from: Point, to: Point, compact: boolean) {
   return `M ${startX} ${startY} C ${startX + bend} ${startY}, ${endX - bend} ${endY}, ${endX} ${endY}`;
 }
 
-export const WorkflowDagStage: React.FC<WorkflowDagStageProps> = ({ workflow, workflows = [], employees, pendingPanelVisible, pendingPanelWidth, onPendingPanelWidthChange }) => {
+export const WorkflowDagStage: React.FC<WorkflowDagStageProps> = ({ active = true, workflow, workflows = [], employees, pendingPanelVisible = false, pendingPanelWidth = 360 }) => {
   const [searchOpen, setSearchOpen] = useState(false);
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [toolbarPosition, setToolbarPosition] = useState<Point | null>(null);
@@ -84,6 +85,7 @@ export const WorkflowDagStage: React.FC<WorkflowDagStageProps> = ({ workflow, wo
   const searchInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     const handleFind = (event: KeyboardEvent) => {
+      if (useWeWorkStore.getState().topology !== 'workflowDag') return;
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f' && !document.querySelector('[role="dialog"]')) {
         event.preventDefault();
         setSearchOpen(true);
@@ -97,6 +99,7 @@ export const WorkflowDagStage: React.FC<WorkflowDagStageProps> = ({ workflow, wo
   useEffect(() => { setWorkflowInfoOpen(false); setSearchOpen(false); setWorkflowCheckOpen(false); setNodeQuery(''); setSearchNodeId(null); setParticipationId(null); setSelectedNodeId(null); setInspectorOpen(false); setNodePanelVisible(false); setNodePanelExpanded(false); setEditHistory({ undo: [], redo: [] }); setNodeMenu(null); }, [workflow?.id]);
   const canvasRef = useRef<HTMLDivElement>(null);
   const [positions, setPositions] = useState<NodePositions>({});
+  const sharedPanel = useContext(WorkspacePanelContext);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [, setNodePanelVisible] = useState(false);
@@ -108,7 +111,6 @@ export const WorkflowDagStage: React.FC<WorkflowDagStageProps> = ({ workflow, wo
   const [nodeMenu, setNodeMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null);
   const [workflowCheckOpen, setWorkflowCheckOpen] = useState(false);
   const [connectingFromNodeId, setConnectingFromNodeId] = useState<string | null>(null);
-  const [sideResize, setSideResize] = useState<{ startX: number; startWidth: number } | null>(null);
   const [newNodeLabel, setNewNodeLabel] = useState('');
   const [newNodeEmployeeId, setNewNodeEmployeeId] = useState('');
   const [canvasSize, setCanvasSize] = useState({ width: 1, height: 1 });
@@ -180,20 +182,20 @@ export const WorkflowDagStage: React.FC<WorkflowDagStageProps> = ({ workflow, wo
   }), [nodes]);
 
   useEffect(() => {
-    if (!team || workflow || preparingWorkflowRef.current) return;
+    if (!active || !team || workflow || preparingWorkflowRef.current) return;
     preparingWorkflowRef.current = true;
     void createWorkflow(selectedTeamId, { name: `${team.name} 工作流`, temporary: true }).finally(() => { preparingWorkflowRef.current = false; });
-  }, [team?.id, workflow, selectedTeamId, createWorkflow]);
+  }, [active, team?.id, workflow, selectedTeamId, createWorkflow]);
 
   useEffect(() => {
-    if (!workflow || removedLegacyPlaceholderRef.current === workflow.id || workflow.nodes.length !== 1) return;
+    if (!active || !workflow || removedLegacyPlaceholderRef.current === workflow.id || workflow.nodes.length !== 1) return;
     const [node] = workflow.nodes;
     const generatedPlaceholder = node.label === '阶段 1' && node.roleName === '待配置岗位' && !node.assignedEmployeeId && !node.workItemId && !(node.requires?.length) && !node.goal;
     if (!generatedPlaceholder) return;
     removedLegacyPlaceholderRef.current = workflow.id;
     removeWorkflowNode(selectedTeamId, node.id);
     window.setTimeout(() => { const current = useWeWorkStore.getState().teams.find(item => item.id === selectedTeamId)?.workflow; if (current) void saveWorkflow(selectedTeamId, current); }, 0);
-  }, [workflow, selectedTeamId, removeWorkflowNode, saveWorkflow]);
+  }, [active, workflow, selectedTeamId, removeWorkflowNode, saveWorkflow]);
 
   useEffect(() => {
     if (!workflow) return;
@@ -208,7 +210,7 @@ export const WorkflowDagStage: React.FC<WorkflowDagStageProps> = ({ workflow, wo
     const observer = new ResizeObserver(([entry]) => setCanvasSize({ width: entry.contentRect.width, height: entry.contentRect.height }));
     observer.observe(canvasRef.current);
     return () => observer.disconnect();
-  }, []);
+  }, [workflow?.id]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -267,7 +269,8 @@ export const WorkflowDagStage: React.FC<WorkflowDagStageProps> = ({ workflow, wo
     if (current) void saveWorkflow(selectedTeamId, current);
   };
   const persistAfterLocalChange = () => window.setTimeout(persistCurrentWorkflow, 0);
-  const closeNodePanel = () => setNodePanelExpanded(false);
+  const openNodeInspector = () => { setInspectorOpen(true); setNodePanelExpanded(true); sharedPanel?.openInspector(); };
+  const closeNodePanel = () => { setNodePanelExpanded(false); setInspectorOpen(false); sharedPanel?.closeInspector(); };
   const snapshotWorkflow = () => structuredClone(useWeWorkStore.getState().teams.find((item) => item.id === selectedTeamId)?.workflow ?? workflow);
   const recordHistory = () => setEditHistory(current => ({ undo: [...current.undo.slice(-49), snapshotWorkflow()], redo: [] }));
   const restoreHistory = async (direction: 'undo' | 'redo') => {
@@ -318,7 +321,7 @@ export const WorkflowDagStage: React.FC<WorkflowDagStageProps> = ({ workflow, wo
     if (workflowLocked) return;
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
-    const reserved = pendingPanelVisible || nodePanelExpanded ? pendingPanelWidth + 16 : 68;
+    const reserved = sharedPanel ? 16 : pendingPanelVisible || nodePanelExpanded ? pendingPanelWidth + 16 : 68;
     const left = navigationOpen ? 224 : 32;
     const centerX = left + Math.max(0, rect.width - reserved - left) / 2;
     setCreateNodeAt({ x: Math.max(20, (centerX - panRef.current.x) / zoomRef.current - NODE_WIDTH / 2), y: Math.max(20, (rect.height / 2 - panRef.current.y) / zoomRef.current - NODE_HEIGHT / 2) });
@@ -326,14 +329,14 @@ export const WorkflowDagStage: React.FC<WorkflowDagStageProps> = ({ workflow, wo
   };
   const changeZoom = (value: number) => {
     const nextZoom = clampDagZoom(value);
-    const right = pendingPanelVisible || nodePanelExpanded ? pendingPanelWidth + 16 : 68;
+    const right = sharedPanel ? 16 : pendingPanelVisible || nodePanelExpanded ? pendingPanelWidth + 16 : 68;
     const anchor = { x: 32 + Math.max(0, canvasSize.width - right - 32) / 2, y: 96 + Math.max(0, canvasSize.height - 168) / 2 };
     const nextPan = panForZoom(panRef.current, zoomRef.current, nextZoom, anchor);
     zoomRef.current = nextZoom; panRef.current = nextPan; setZoom(nextZoom); setPan(nextPan);
   };
   const mapWidth = Math.max(CANVAS_WIDTH, ...nodes.map(node => (positions[node.id]?.x ?? 0) + NODE_WIDTH + 80));
   const mapHeight = Math.max(CANVAS_HEIGHT, ...nodes.map(node => (positions[node.id]?.y ?? 0) + NODE_HEIGHT + 80));
-  const mapRight = pendingPanelVisible || nodePanelExpanded ? pendingPanelWidth + 16 : 68;
+  const mapRight = sharedPanel ? 16 : pendingPanelVisible || nodePanelExpanded ? pendingPanelWidth + 16 : 68;
   const navigateMap = (event: React.PointerEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     const worldX = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)) * mapWidth;
@@ -359,7 +362,7 @@ export const WorkflowDagStage: React.FC<WorkflowDagStageProps> = ({ workflow, wo
     const index = searchIndex < 0 ? (direction > 0 ? 0 : searchMatches.length - 1) : (searchIndex + direction + searchMatches.length) % searchMatches.length;
     focusNode(searchMatches[index].id, true);
   };
-  const fitView = (reservedWidth = pendingPanelVisible || nodePanelExpanded ? pendingPanelWidth + 16 : 68) => {
+  const fitView = (reservedWidth = sharedPanel ? 16 : pendingPanelVisible || nodePanelExpanded ? pendingPanelWidth + 16 : 68) => {
     if (!canvasRef.current || nodes.length === 0) return;
     const points = nodes.map((node) => positions[node.id]).filter(Boolean);
     const minX = Math.min(...points.map((point) => point.x));
@@ -408,6 +411,7 @@ export const WorkflowDagStage: React.FC<WorkflowDagStageProps> = ({ workflow, wo
         });
       } else {
         setSelectedNodeId(interaction.nodeId);
+        openNodeInspector();
       }
     }
     nodeMovedRef.current = false;
@@ -425,17 +429,17 @@ export const WorkflowDagStage: React.FC<WorkflowDagStageProps> = ({ workflow, wo
     else if (event.shiftKey && event.code === 'Digit1') { event.preventDefault(); fitView(); }
     else if (!event.metaKey && !event.ctrlKey && !event.altKey && key === 'a') { event.preventDefault(); openCreateNodeAtCenter(); }
     else if (!event.metaKey && !event.ctrlKey && !event.altKey && key === 'c' && selectedNodeId && !workflowLocked) { event.preventDefault(); setConnectingFromNodeId(value => value ? null : selectedNodeId); }
-    else if (!event.metaKey && !event.ctrlKey && !event.altKey && key === 'e' && selectedNodeId) { event.preventDefault(); setInspectorOpen(value => !value); }
+    else if (!event.metaKey && !event.ctrlKey && !event.altKey && key === 'e' && selectedNodeId) { event.preventDefault(); sharedPanel ? openNodeInspector() : setInspectorOpen(value => !value); }
     else if (event.key === '-' && !event.metaKey && !event.ctrlKey) { event.preventDefault(); changeZoom(zoomRef.current - 0.1); }
     else if ((event.key === '+' || event.key === '=') && !event.metaKey && !event.ctrlKey) { event.preventDefault(); changeZoom(zoomRef.current + 0.1); }
     else if (event.key === '0' && !event.metaKey && !event.ctrlKey) { event.preventDefault(); changeZoom(1); }
   };
 
-  return <div className="dag-participation-stage relative h-full w-full overflow-hidden" onKeyDown={handleDagShortcut} onPointerMove={(event) => { if (sideResize) onPendingPanelWidthChange(Math.max(300, Math.min(520, sideResize.startWidth + sideResize.startX - event.clientX))); }} onPointerUp={() => setSideResize(null)} onPointerCancel={() => setSideResize(null)}>
+  return <div className="dag-participation-stage relative h-full w-full overflow-hidden" onKeyDown={handleDagShortcut}>
     {team && nodes.find(node => node.id === participationId) && <ParticipationDetail team={team} node={nodes.find(node => node.id === participationId)!} onBack={() => setParticipationId(null)} onOpenWorkflow={openWorkflow} onOpen={(employeeId, workId) => { setParticipationId(null); selectEmployee(employeeId); openWorkbench(employeeId, workId); }} />}
     <header className="absolute left-4 top-4 z-30 flex min-h-12 items-center gap-2 rounded-xl border border-slate-200 bg-white/95 px-2 py-1.5 shadow-lg backdrop-blur" style={{right:mapRight}}>
       <Button variant="ghost" type="button" aria-label="选择工作编排" aria-expanded={navigationOpen} onClick={()=>setNavigationOpen(value=>!value)} className="h-8 shrink-0 px-2"><Layers className="mr-1 h-3.5 w-3.5"/>编排</Button>
-      <div className="min-w-0 flex-1"><h2 className="truncate text-xs font-bold text-slate-900">{workflow.name}</h2><p className="truncate text-[9px] text-slate-500">{execution?.status === 'blocked' ? '编排受阻 · 查看节点任务与原因' : execution && !execution.enabled ? '编排已暂停 · 已启动工作可继续' : workflow.workId ? `所属任务：${linkedTask?.title ?? '任务引用暂不可用'}` : '双击节点查看任务'}</p></div>
+      <div className="min-w-0 flex-1"><h2 className="truncate text-xs font-bold text-slate-900">{workflow.name}</h2><p className="truncate text-[9px] text-slate-500">{execution?.status === 'blocked' ? '编排受阻 · 查看节点任务与原因' : execution && !execution.enabled ? '编排已暂停 · 已启动工作可继续' : workflow.workId ? `所属任务：${linkedTask?.title ?? '任务引用暂不可用'}` : '单击节点配置 · 双击查看任务'}</p></div>
       <nav aria-label="DAG 编排工具栏" onKeyDown={event => { if (event.key === 'Escape') { setConnectingFromNodeId(null); canvasRef.current?.focus(); } }} style={toolbarPosition ? { position: 'absolute', left: toolbarPosition.x - 16, top: toolbarPosition.y - 16 } : undefined} className={`flex shrink-0 items-center gap-1 ${toolbarPosition ? 'z-50 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg' : 'border-l border-slate-200 pl-2'}`}>
         <button type="button" aria-label="拖动工具栏" title="拖动可将工具栏移出顶部；双击收回" className="touch-none cursor-grab rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 active:cursor-grabbing"
           onDoubleClick={() => setToolbarPosition(null)}
@@ -466,7 +470,7 @@ export const WorkflowDagStage: React.FC<WorkflowDagStageProps> = ({ workflow, wo
         {!workflowHasStarted && <Button variant="primary" type="button" aria-label="开始编排" title="开始编排" onClick={() => void startWorkflow(selectedTeamId)} className="flex h-9 w-9 items-center justify-center p-0"><PlayCircle className="h-[18px] w-[18px]" /></Button>}
         <Button variant="secondary" type="button" disabled={workflowLocked} title={workflowLocked ? '流程正在运行，请暂停后编辑' : '新增节点（A）'} onClick={openCreateNodeAtCenter} className="flex h-9 w-9 items-center justify-center p-0" aria-label="新增节点"><SquarePlus className="h-[18px] w-[18px]" /></Button>
         <Button variant="secondary" type="button" disabled={workflowLocked || !selectedNode} aria-label="连线" aria-pressed={Boolean(connectingFromNodeId)} title={workflowLocked ? '流程正在运行，请暂停后编辑' : !selectedNode ? '连线（C）· 先选择一个上游节点' : '连线（C）· Esc 取消'} onClick={() => setConnectingFromNodeId(current => current ? null : selectedNodeId)} className={`flex h-9 w-9 items-center justify-center p-0 ${connectingFromNodeId ? 'bg-sky-100 text-sky-700 ring-1 ring-sky-300' : ''}`}><GitBranch className="h-[18px] w-[18px]" /></Button>
-        <Button variant="secondary" type="button" disabled={!selectedNode} aria-label="节点详情" aria-pressed={inspectorOpen} title={selectedNode ? '节点详情（E）' : '节点详情（E）· 先选择一个节点'} onClick={() => setInspectorOpen(value => !value)} className="flex h-9 w-9 items-center justify-center p-0"><PanelRight className="h-[18px] w-[18px]" /></Button>
+        <Button variant="secondary" type="button" disabled={!selectedNode} aria-label="配置节点" aria-pressed={inspectorOpen} title={selectedNode ? '配置节点（E）' : '配置节点（E）· 先选择一个节点'} onClick={() => sharedPanel ? openNodeInspector() : setInspectorOpen(value => !value)} className={`flex h-9 items-center justify-center gap-1.5 px-2.5 ${inspectorOpen ? 'border-sky-200 bg-sky-50 text-sky-700' : ''}`}><Settings2 className="h-[17px] w-[17px]" /><span className="text-[10px] font-semibold">配置节点</span></Button>
         <Button variant="secondary" type="button" disabled={workflowLocked || !selectedNode} aria-label="删除节点" title={workflowLocked ? '流程正在运行，请暂停后编辑' : selectedNode ? `删除 ${selectedNode.label}（Delete / Backspace）` : '删除节点（Delete / Backspace）· 先选择一个节点'} onClick={() => setDeleteNodeId(selectedNodeId)} className="flex h-9 w-9 items-center justify-center p-0 text-rose-600 hover:border-rose-200 hover:bg-rose-50"><Trash2 className="h-[18px] w-[18px]" /></Button>
 
         <span aria-hidden="true" className="mx-1 h-4 w-px bg-slate-200" />
@@ -512,7 +516,7 @@ export const WorkflowDagStage: React.FC<WorkflowDagStageProps> = ({ workflow, wo
           onControl={continueWork => continueWorkflowWork(selectedTeamId, workflow.id, continueWork)}
           onOpenWork={workId => {
             const node = nodes.find(item => item.workItemId === workId);
-            if (node) { setSelectedNodeId(node.id); setInspectorOpen(true); }
+            if (node) { setSelectedNodeId(node.id); openNodeInspector(); }
           }} />
       </div>}
 
@@ -550,16 +554,16 @@ export const WorkflowDagStage: React.FC<WorkflowDagStageProps> = ({ workflow, wo
             onPointerDown={(event) => { event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); nodeMovedRef.current = false; setSelectedNodeId(node.id); setInteraction({ kind: 'node', nodeId: node.id, start: { x: event.clientX, y: event.clientY }, origin: point, moved: false }); }}
             onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); setSelectedNodeId(node.id); const rect = canvasRef.current?.getBoundingClientRect(); if (rect) setNodeMenu({ nodeId: node.id, x: event.clientX - rect.left, y: event.clientY - rect.top }); }}
             onDoubleClick={() => setParticipationId(node.id)}
-            onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); setParticipationId(node.id); } }}
+            onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedNodeId(node.id); openNodeInspector(); } }}
             onDragOver={(event) => { event.preventDefault(); if (assignedEmployee) setDragHoveredEmployeeId(assignedEmployee.id); }} onDragLeave={() => setDragHoveredEmployeeId(null)}
             onDrop={(event) => { event.preventDefault(); if (assignedEmployee && draggingWorkItemId) dispatchWorkToEmployee(draggingWorkItemId, assignedEmployee.id); }}>
             <button disabled={workflowStarted} type="button" aria-label={`连接到 ${node.label}`} title={workflowStarted ? '流程执行后依赖关系不可修改' : connectingFromNodeId ? '设为下游节点' : '输入端口'} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); connectNodes(node); }} style={nodeDisplayMode === 'avatar' ? {left:NODE_WIDTH/2-38-8} : undefined} className={`group/port absolute -left-2 top-1/2 -translate-y-1/2 h-4 w-4 rounded-full border-2 border-white bg-slate-400 shadow-sm transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-50 hover:scale-150 hover:bg-sky-500 hover:ring-4 hover:ring-sky-200 ${connectingFromNodeId && connectingFromNodeId !== node.id ? 'scale-125 cursor-crosshair ring-4 ring-sky-200' : ''}`}><span className="pointer-events-none absolute left-1/2 top-5 hidden -translate-x-1/2 whitespace-nowrap rounded bg-slate-900 px-1.5 py-1 text-[8px] font-semibold text-white shadow-lg group-hover/port:block">输入 · 来自上游</span></button>
             <button disabled={workflowStarted} type="button" aria-label={`从 ${node.label} 开始连线`} title={workflowStarted ? '流程执行后依赖关系不可修改' : '点击后选择下游节点的输入端口'} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); setConnectingFromNodeId((current) => current === node.id ? null : node.id); }} style={nodeDisplayMode === 'avatar' ? {right:NODE_WIDTH/2-38-8} : undefined} className={`group/port absolute -right-2 top-1/2 -translate-y-1/2 h-4 w-4 rounded-full border-2 border-white bg-sky-500 shadow-sm transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-50 hover:scale-150 hover:bg-sky-600 hover:ring-4 hover:ring-sky-200 ${connectingFromNodeId === node.id ? 'scale-125 ring-4 ring-sky-200' : ''}`}><span className="pointer-events-none absolute left-1/2 top-5 hidden -translate-x-1/2 whitespace-nowrap rounded bg-slate-900 px-1.5 py-1 text-[8px] font-semibold text-white shadow-lg group-hover/port:block">输出 · 交给下游</span></button>
-            {selected && <div className="dag-node-actions" style={{ width: 280, minWidth: 280, transform: `scale(${1 / zoom})`, transformOrigin: 'bottom left', left: (Math.max(32, Math.min(point.x * zoom + pan.x, canvasSize.width - (pendingPanelVisible || nodePanelExpanded ? pendingPanelWidth + 16 : 68) - 296)) - (point.x * zoom + pan.x)) / zoom }} role="group" aria-label={`${node.label} 就地操作`} onPointerDown={event => event.stopPropagation()} onDoubleClick={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>
+            {selected && <div className="dag-node-actions" style={{ width: 280, minWidth: 280, transform: `scale(${1 / zoom})`, transformOrigin: 'bottom left', left: (Math.max(32, Math.min(point.x * zoom + pan.x, canvasSize.width - (sharedPanel ? 16 : pendingPanelVisible || nodePanelExpanded ? pendingPanelWidth + 16 : 68) - 296)) - (point.x * zoom + pan.x)) / zoom }} role="group" aria-label={`${node.label} 就地操作`} onPointerDown={event => event.stopPropagation()} onDoubleClick={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>
               {(executionBlocker || node.blockedReason) && <p className="mb-2 text-xs text-amber-700">{executionBlocker ? workflowBlockerMessage(executionBlocker) : node.blockedReason}</p>}
               <div className="flex items-center gap-1">
                 <Button type="button" onClick={() => setParticipationId(node.id)}>查看任务与依据</Button>
-                {!workflowLocked && <Button type="button" onClick={() => setInspectorOpen(true)}>配置</Button>}
+                {!workflowLocked && <Button variant="primary" type="button" onClick={() => openNodeInspector()}><Settings2 className="mr-1 h-3.5 w-3.5" />配置节点</Button>}
                 {assignedEmployee && actualWork && <Button type="button" onClick={() => { selectEmployee(assignedEmployee.id); openWorkbench(assignedEmployee.id, actualWork.id); }}>补充说明</Button>}
               </div>
             </div>}
@@ -583,17 +587,17 @@ export const WorkflowDagStage: React.FC<WorkflowDagStageProps> = ({ workflow, wo
         })}
       </div>
 
-      <div className="absolute bottom-4 z-20 h-[98px] w-[180px] overflow-hidden rounded-lg border border-slate-200 bg-white/95 p-2 shadow-sm transition-[right] duration-300" style={{ right: pendingPanelVisible || nodePanelExpanded ? pendingPanelWidth + 16 : 68 }} aria-label="流程小地图"><div className="relative h-full w-full cursor-move bg-slate-50"
+      <div className="absolute bottom-4 z-20 h-[98px] w-[180px] overflow-hidden rounded-lg border border-slate-200 bg-white/95 p-2 shadow-sm transition-[right] duration-300" style={{ right: sharedPanel ? 16 : pendingPanelVisible || nodePanelExpanded ? pendingPanelWidth + 16 : 68 }} aria-label="流程小地图"><div className="relative h-full w-full cursor-move bg-slate-50"
         onPointerDown={(event) => { event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); navigateMap(event); }}
         onPointerMove={(event) => { event.stopPropagation(); if (event.currentTarget.hasPointerCapture(event.pointerId)) navigateMap(event); }}
         onPointerUp={(event) => { event.stopPropagation(); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }}
         onDoubleClick={event => event.stopPropagation()}>
         {nodes.map((node) => positions[node.id] && <i key={node.id} title={node.label} className={`pointer-events-none absolute rounded-[2px] ${selectedNodeId === node.id ? 'bg-sky-500' : 'bg-slate-300'}`} style={{ left: `${(positions[node.id].x / mapWidth) * 100}%`, top: `${(positions[node.id].y / mapHeight) * 100}%`, width: `${NODE_WIDTH / mapWidth * 100}%`, height: `${NODE_HEIGHT / mapHeight * 100}%` }} />)}
         <span className="pointer-events-none absolute rounded border border-sky-400 bg-sky-100/20" style={{ left: `${((32 - pan.x) / zoom / mapWidth) * 100}%`, top: `${((96 - pan.y) / zoom / mapHeight) * 100}%`, width: `${Math.max(0, (canvasSize.width - 32 - mapRight) / zoom / mapWidth) * 100}%`, height: `${Math.max(0, (canvasSize.height - 168) / zoom / mapHeight) * 100}%` }} /></div></div>
-      {connectingFromNodeId ? <div className="pointer-events-none absolute bottom-4 left-1/2 z-30 -translate-x-1/2"><span className="flex items-center gap-1.5 whitespace-nowrap rounded-full bg-sky-600 px-3 py-1.5 text-[10px] font-semibold text-white shadow-lg"><MousePointer2 className="h-3 w-3" />请选择下游节点左侧的输入端口</span></div> : !selectedNodeId && !inspectorOpen && !createNodeAt && <div className="pointer-events-none absolute bottom-4 left-1/2 z-30 -translate-x-1/2"><span className="flex items-center gap-1.5 whitespace-nowrap rounded-full bg-white/90 px-3 py-1.5 text-[10px] text-slate-400 shadow-sm"><MousePointer2 className="h-3 w-3" />拖动空白处或滚轮平移 · ⌘/Ctrl + 滚轮缩放 · 双击节点查看任务</span></div>}
+      {connectingFromNodeId ? <div className="pointer-events-none absolute bottom-4 left-1/2 z-30 -translate-x-1/2"><span className="flex items-center gap-1.5 whitespace-nowrap rounded-full bg-sky-600 px-3 py-1.5 text-[10px] font-semibold text-white shadow-lg"><MousePointer2 className="h-3 w-3" />请选择下游节点左侧的输入端口</span></div> : !selectedNodeId && !inspectorOpen && !createNodeAt && <div className="pointer-events-none absolute bottom-4 left-1/2 z-30 -translate-x-1/2"><span className="flex items-center gap-1.5 whitespace-nowrap rounded-full bg-white/90 px-3 py-1.5 text-[10px] text-slate-400 shadow-sm"><MousePointer2 className="h-3 w-3" />单击节点打开配置 · 双击查看任务 · 拖动节点调整位置</span></div>}
 
       {nodeMenu && <div role="menu" aria-label="节点操作" className="absolute z-50 w-40 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl" style={{ left: Math.max(8, Math.min(nodeMenu.x, canvasSize.width - 168)), top: Math.max(8, Math.min(nodeMenu.y, canvasSize.height - 132)) }} onPointerDown={event => event.stopPropagation()}>
-        <button autoFocus role="menuitem" type="button" className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-100" onClick={() => { setSelectedNodeId(nodeMenu.nodeId); setInspectorOpen(true); setNodeMenu(null); }}><PanelRight className="h-4 w-4" />编辑节点</button>
+        <button autoFocus role="menuitem" type="button" className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-100" onClick={() => { setSelectedNodeId(nodeMenu.nodeId); openNodeInspector(); setNodeMenu(null); }}><PanelRight className="h-4 w-4" />编辑节点</button>
         <button role="menuitem" type="button" disabled={workflowLocked} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-100 disabled:opacity-40" onClick={() => duplicateNode(nodeMenu.nodeId)}><Copy className="h-4 w-4" />创建副本</button>
         <button role="menuitem" type="button" disabled={workflowLocked} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-rose-600 hover:bg-rose-50 disabled:opacity-40" onClick={() => { setDeleteNodeId(nodeMenu.nodeId); setNodeMenu(null); }}><Trash2 className="h-4 w-4" />删除节点</button>
       </div>}
@@ -620,12 +624,12 @@ export const WorkflowDagStage: React.FC<WorkflowDagStageProps> = ({ workflow, wo
         <header className="flex items-center justify-between border-b border-slate-100 px-4 py-3"><div><strong className="text-xs text-slate-800">编排检查</strong><p className="mt-0.5 text-[9px] text-slate-400">结构问题与运行记录可直接定位到节点</p></div><button type="button" aria-label="关闭编排检查" onClick={() => setWorkflowCheckOpen(false)} className="rounded p-1 text-slate-400 hover:bg-slate-100"><X className="h-4 w-4" /></button></header>
         <div className="min-h-0 overflow-y-auto p-3">
           <div className={`rounded-lg border p-3 ${workflowChecks.some(issue => issue.level === 'error') ? 'border-rose-200 bg-rose-50' : workflowChecks.length ? 'border-amber-200 bg-amber-50' : 'border-emerald-200 bg-emerald-50'}`}><div className="flex items-center gap-2 text-xs font-semibold text-slate-700"><ListChecks className="h-4 w-4" />{workflowChecks.length ? `${workflowChecks.length} 项需要完善` : '结构检查通过'}</div><p className="mt-1 text-[9px] text-slate-500">{nodes.length} 个节点 · {nodes.reduce((sum, node) => sum + (node.requires?.length ?? 0), 0)} 条依赖</p></div>
-          {workflowChecks.length > 0 && <div className="mt-3 space-y-1">{workflowChecks.map((issue, index) => { const node = nodes.find(item => item.id === issue.nodeId); return <button type="button" key={`${issue.nodeId}:${issue.message}:${index}`} onClick={() => { focusNode(issue.nodeId); setInspectorOpen(true); setWorkflowCheckOpen(false); }} className="flex w-full items-start gap-2 rounded-lg px-2 py-2 text-left hover:bg-slate-50"><AlertCircle className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${issue.level === 'error' ? 'text-rose-500' : 'text-amber-500'}`} /><span className="min-w-0"><strong className="block truncate text-[10px] text-slate-700">{node?.label ?? '未知节点'}</strong><span className="text-[9px] text-slate-500">{issue.message}</span></span></button>; })}</div>}
+          {workflowChecks.length > 0 && <div className="mt-3 space-y-1">{workflowChecks.map((issue, index) => { const node = nodes.find(item => item.id === issue.nodeId); return <button type="button" key={`${issue.nodeId}:${issue.message}:${index}`} onClick={() => { focusNode(issue.nodeId); openNodeInspector(); setWorkflowCheckOpen(false); }} className="flex w-full items-start gap-2 rounded-lg px-2 py-2 text-left hover:bg-slate-50"><AlertCircle className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${issue.level === 'error' ? 'text-rose-500' : 'text-amber-500'}`} /><span className="min-w-0"><strong className="block truncate text-[10px] text-slate-700">{node?.label ?? '未知节点'}</strong><span className="text-[9px] text-slate-500">{issue.message}</span></span></button>; })}</div>}
           <div className="mt-4 border-t border-slate-100 pt-3"><div className="mb-2 flex items-center gap-2 text-[10px] font-semibold text-slate-600"><History className="h-3.5 w-3.5" />本次编排运行</div>{execution?.runs.length ? <div className="space-y-1">{execution.runs.map(run => { const node = nodes.find(item => item.workItemId === run.workId); const employee = employees.find(item => item.id === run.employeeId); return <button type="button" key={run.runId} onClick={() => node && focusNode(node.id)} disabled={!node} className="block w-full rounded-lg border border-slate-100 px-2.5 py-2 text-left hover:border-sky-200 hover:bg-sky-50 disabled:opacity-50"><strong className="block truncate text-[10px] text-slate-700">{node?.label ?? run.workId}</strong><span className="block truncate text-[9px] text-slate-400">{employee?.displayName ?? run.employeeId} · {run.runId}</span></button>; })}</div> : <p className="rounded-lg bg-slate-50 px-3 py-3 text-[9px] text-slate-400">尚无运行记录。启动编排后，节点执行会显示在这里。</p>}</div>
         </div>
       </section>}
 
-      {createNodeAt && <Dialog open onClose={() => setCreateNodeAt(null)} title="创建流程节点" description="节点将放置在画布选定位置"><form className="dag-panel-content p-5" onSubmit={(event) => { event.preventDefault(); recordHistory(); const employee = employees.find((item) => item.id === newNodeEmployeeId); const nodeId = addWorkflowNode(selectedTeamId, createNodeAt); updateWorkflowNode(selectedTeamId, nodeId, { label: newNodeLabel.trim() || `阶段 ${nodes.length + 1}`, assignedEmployeeId: employee?.id, roleName: employee?.roleName ?? '待配置岗位' }); setCreateNodeAt(null); setSelectedNodeId(nodeId); setInspectorOpen(true); persistAfterLocalChange(); }}>
+      {createNodeAt && <Dialog open onClose={() => setCreateNodeAt(null)} title="创建流程节点" description="节点将放置在画布选定位置"><form className="dag-panel-content p-5" onSubmit={(event) => { event.preventDefault(); recordHistory(); const employee = employees.find((item) => item.id === newNodeEmployeeId); const nodeId = addWorkflowNode(selectedTeamId, createNodeAt); updateWorkflowNode(selectedTeamId, nodeId, { label: newNodeLabel.trim() || `阶段 ${nodes.length + 1}`, assignedEmployeeId: employee?.id, roleName: employee?.roleName ?? '待配置岗位' }); setCreateNodeAt(null); setSelectedNodeId(nodeId); openNodeInspector(); persistAfterLocalChange(); }}>
 
         <label className="mt-5 block text-[11px] font-semibold text-slate-600">节点名称<Input autoFocus value={newNodeLabel} onChange={(event) => setNewNodeLabel(event.target.value)} className="mt-1.5 w-full px-3 py-2.5 outline-none" /></label>
         <fieldset className="mt-4"><legend className="text-[11px] font-semibold text-slate-600">选择负责角色</legend><div className="mt-2 grid grid-cols-2 gap-2">{employees.map((employee) => <Button key={employee.id} type="button" onClick={() => setNewNodeEmployeeId(employee.id)} className={`flex items-center gap-2 rounded-xl border p-2.5 text-left transition-colors ${newNodeEmployeeId === employee.id ? 'border-sky-400 bg-sky-50' : 'border-slate-200 hover:bg-slate-50'}`}><EmployeeBotAvatar size={32} bodyColor={employee.color} status={employee.status} showBadge={false} /><span className="min-w-0"><strong className="block truncate text-[10px] text-slate-700">{employee.displayName}</strong><small className="block truncate text-[9px] text-slate-400">{employee.roleName}</small></span></Button>)}</div></fieldset>
@@ -651,7 +655,7 @@ export const WorkflowDagStage: React.FC<WorkflowDagStageProps> = ({ workflow, wo
       </form></Dialog>
     </div>
 
-    {nodePanelExpanded && selectedNode && <aside className="absolute bottom-4 right-4 top-4 z-40 flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg" style={{ width: pendingPanelWidth }} aria-label="DAG 配置">
+    {nodePanelExpanded && selectedNode && (sharedPanel?.target || !sharedPanel) && createPortal(<aside className={sharedPanel ? "flex h-full min-h-0 flex-col overflow-hidden bg-white" : "absolute bottom-4 right-4 top-4 z-40 flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg"} style={sharedPanel ? undefined : { width: pendingPanelWidth }} aria-label="DAG 配置">
       <header className="flex items-center justify-between border-b p-4"><strong className="text-sm">{selectedNode ? '节点配置' : '编排配置'}</strong><Button aria-label="关闭配置" onClick={closeNodePanel}><X size={16} /></Button></header>
       <div className="min-h-0 flex-1 overflow-y-auto">
 <div key={selectedNode?.id ?? 'workflow'} className="dag-panel-content">
@@ -669,7 +673,7 @@ export const WorkflowDagStage: React.FC<WorkflowDagStageProps> = ({ workflow, wo
         <Button disabled={workflowStarted} type="button" onClick={() => setDeleteNodeId(selectedNode.id)} className="flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-rose-200 text-[11px] font-semibold text-rose-600 hover:bg-rose-50"><Trash2 className="h-3.5 w-3.5" />删除节点</Button>
       </div> : null}
       </div></div>
-    </aside>}
+    </aside>, sharedPanel?.target ?? canvasRef.current!.parentElement!)}
     </div>
   </div>;
 };

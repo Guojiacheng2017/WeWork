@@ -1,8 +1,8 @@
 import { PLANE_PLUGIN_ID } from '../../domain/collaboration';
-import { useState, useLayoutEffect, useRef } from 'react';
+import { useEffect, useState, useLayoutEffect, useRef } from 'react';
 import { useWeWorkStore } from '../../state/weworkStore';
-import { CircleDot, GitFork, Layers, Users } from 'lucide-react';
-import { Badge, Select } from '../ui';
+import { Check, CircleDot, GitFork, Layers, Pencil, X } from 'lucide-react';
+import { Badge, Input, Select } from '../ui';
 import { projectPluginName, projectPluginViews, usePluginCatalog } from '../project/projectNavigation';
 
 export function StageHeader({ onPluginSelect }: { onPluginSelect: (plugin: { id: string; name: string; description: string } | null) => void }) {
@@ -34,9 +34,21 @@ export function StageHeader({ onPluginSelect }: { onPluginSelect: (plugin: { id:
     observer.observe(header);
     return () => { observer.disconnect(); document.documentElement.style.removeProperty('--wework-toolbar-height'); };
   }, []);
-  const { teams, selectedTeamId, topology, setTopology } = useWeWorkStore();
+  const { teams, selectedTeamId, topology, setTopology, renameTeam } = useWeWorkStore();
   const currentTeam = teams.find(team => team.id === selectedTeamId);
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
+  const [savingName, setSavingName] = useState(false);
+  useEffect(() => { if (!editingName) setNameDraft(currentTeam?.name ?? ''); }, [currentTeam?.id, currentTeam?.name, editingName]);
   if (!currentTeam) return <header ref={headerRef} className="wework-stage-header shrink-0 border-b border-slate-200 bg-white" />;
+  const saveTeamName = async () => {
+    const name = nameDraft.trim();
+    if (!name || name === currentTeam.name || savingName) { setNameDraft(currentTeam.name); setEditingName(false); return; }
+    setSavingName(true);
+    try { await renameTeam(currentTeam.id, name); setEditingName(false); }
+    catch { /* The store exposes the error; keep the field open for correction. */ }
+    finally { setSavingName(false); }
+  };
   const project = currentTeam.modules?.projectManagement;
   const capabilities = new Set(project?.enabled ? project.capabilities : []);
   const availableProjectViews = projectPluginViews.filter(view => capabilities.has(view.value));
@@ -61,8 +73,8 @@ export function StageHeader({ onPluginSelect }: { onPluginSelect: (plugin: { id:
   };
   return <header ref={headerRef} className="wework-stage-header h-14 bg-white/90 backdrop-blur-md border-b border-slate-200/80 px-6 flex items-center justify-between z-10 shrink-0 select-none">
     <div className="stage-team-summary flex min-w-0 items-center gap-3">
-      <div className="flex h-9 min-w-0 items-center gap-2 rounded-xl bg-slate-50 px-3 ring-1 ring-inset ring-slate-100">
-        <h2 className="text-sm font-bold text-slate-900 truncate">{currentTeam.name}</h2>
+      <div className="group/team-name flex h-9 min-w-0 items-center gap-2 rounded-xl bg-slate-50 px-3 ring-1 ring-inset ring-slate-100">
+        {editingName ? <form className="flex min-w-0 items-center gap-1" onSubmit={(event)=>{event.preventDefault();void saveTeamName();}}><Input autoFocus aria-label="团队名称" value={nameDraft} maxLength={200} disabled={savingName} onChange={(event)=>setNameDraft(event.target.value)} onKeyDown={(event)=>{if(event.key==='Escape'){event.preventDefault();setNameDraft(currentTeam.name);setEditingName(false);}}} className="h-7 w-44 border-slate-200 bg-white px-2 text-sm font-bold"/><button type="submit" disabled={!nameDraft.trim()||savingName} aria-label="保存团队名称" className="grid h-7 w-7 place-items-center rounded-lg text-emerald-600 hover:bg-emerald-50 disabled:opacity-40"><Check className="h-3.5 w-3.5"/></button><button type="button" aria-label="取消修改团队名称" onClick={()=>{setNameDraft(currentTeam.name);setEditingName(false);}} className="grid h-7 w-7 place-items-center rounded-lg text-slate-400 hover:bg-slate-200"><X className="h-3.5 w-3.5"/></button></form> : <button type="button" aria-label={`修改团队名称：${currentTeam.name}`} onClick={()=>{setNameDraft(currentTeam.name);setEditingName(true);}} title="修改团队名称" className="flex min-w-0 items-center gap-1.5 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300"><h2 className="truncate text-sm font-bold text-slate-900">{currentTeam.name}</h2><Pencil className="h-3 w-3 shrink-0 text-slate-400 opacity-60 transition-opacity group-hover/team-name:opacity-100 group-focus-within/team-name:opacity-100"/></button>}
         <Badge className="shrink-0 bg-white text-slate-500 shadow-xs ring-1 ring-slate-200">{currentTeam.employees.length} 名助手</Badge>
       </div>
       {currentTeam.description.trim() && <><div className="h-4 w-px bg-slate-200" /><p className="hidden max-w-md truncate text-xs text-slate-400 lg:block">{currentTeam.description}</p></>}
@@ -72,7 +84,6 @@ export function StageHeader({ onPluginSelect }: { onPluginSelect: (plugin: { id:
         <span aria-hidden="true" className="stage-view-capsule-indicator" style={{ width: indicator.width, transform: `translateX(${indicator.left - 4}px)`, opacity: indicator.visible ? 1 : 0 }} />
         <button type="button" aria-current={topology === 'roundTable' ? 'page' : undefined} onClick={() => setTopology('roundTable')}><CircleDot size={14} /><span>圆桌</span></button>
         <button type="button" aria-current={topology === 'workflowDag' ? 'page' : undefined} onClick={() => setTopology('workflowDag')}><GitFork size={14} /><span>工作流</span></button>
-        <button type="button" aria-current={topology === 'teamManagement' ? 'page' : undefined} onClick={() => setTopology('teamManagement')}><Users size={14} /><span>团队</span></button>
         {enabledPlugins.length > 0 && <Select className="stage-plugin-select" label="选择团队插件" value={selectedPlugin.value} options={enabledPlugins.map(item => ({ ...item, icon: <Layers size={14} /> }))} aria-current={pluginSelected ? 'page' : undefined} onClick={event => {
           if (!pluginSelected) {
             event.preventDefault();

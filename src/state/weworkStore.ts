@@ -41,7 +41,7 @@ interface WeWorkState {
   isCreateTeamOpen: boolean;
   isAddEmployeeOpen: boolean;
   isRuntimeProfileOpen: boolean;
-  settingsSection: 'general' | 'execution' | 'storage' | 'about';
+  settingsSection: 'general' | 'skills' | 'plugins' | 'browser' | 'execution' | 'storage' | 'about';
   serviceStatus: 'loading' | 'ready' | 'error';
   serviceError: string | null;
   operationNotice: { message: string; employeeId?: string; tabId?: string } | null;
@@ -70,11 +70,12 @@ interface WeWorkState {
   stopEmployee: (employeeId: string, tabId?: string) => Promise<void>;
   cancelWork: (workId: string) => Promise<void>;
   createTeam: (name: string, description: string, workspaceAssignment?: WorkspaceAssignment) => Promise<void>;
+  renameTeam: (teamId: string, name: string) => Promise<void>;
   archiveTeam: (teamId: string) => Promise<void>;
   restoreTeam: (teamId: string) => Promise<void>;
   deleteTeam: (teamId: string) => Promise<void>;
   updateTeamWorkspace: (teamId: string, workspaceAssignment?: WorkspaceAssignment) => Promise<void>;
-  addEmployee: (teamId: string, displayName: string, roleName: string, runtime: 'Pi' | 'Claude Code' | 'DSH' | 'Workspace', sessionExecution: SessionExecution) => Promise<void>;
+  addEmployee: (teamId: string, displayName: string, roleName: string, runtime: 'Pi' | 'Claude Code' | 'DSH' | 'Workspace', sessionExecution?: SessionExecution) => Promise<void>;
   removeEmployee: (teamId: string, employeeId: string) => Promise<void>;
   updateEmployee: (employeeId: string, input: { displayName: string; roleName: string; runtime: WeWorkEmployee['runtime']; skills: WeWorkEmployee['builtInSkills']; defaultRuntimeProfileId?: string; workspaceAssignment?: WorkspaceAssignment; sessionExecution?: SessionExecution; sessionContextTagIds?: string[]; sessionPermissionMode?: AgentPermissionMode; color?: string; startNewSession?: boolean }) => Promise<void>;
   createRuntimeProfile: (input: Omit<RuntimeProfile, 'id' | 'createdAt' | 'updatedAt'>) => Promise<RuntimeProfile | undefined>;
@@ -334,6 +335,11 @@ export const useWeWorkStore = create<WeWorkState>()((set, get) => ({
 
   dispatchWorkToEmployee: (workItemId, targetEmployeeId) => {
     set({ draggingWorkItemId: null, dragHoveredEmployeeId: null });
+    const execution = get().teams.flatMap(team => team.employees).find(employee => employee.id === targetEmployeeId)?.activeSession.execution;
+    if (weworkMode === 'local' && (!execution?.model.modelId || execution.enabled === false)) {
+      reportError(set, new Error('请先完成助手执行器与模型配置，再分派工作。'), targetEmployeeId);
+      return;
+    }
     void weworkApi.assignWork(workItemId, targetEmployeeId).then(async () => {
       await get().hydrate();
       const currentWork = get().teams.flatMap(team => team.employees).find(employee => employee.id === targetEmployeeId)?.currentWorkItem;
@@ -408,6 +414,11 @@ export const useWeWorkStore = create<WeWorkState>()((set, get) => ({
 
   archiveTeam: async (teamId) => {
     try { await weworkApi.archiveTeam(teamId); await get().hydrate(); }
+    catch (error) { reportError(set, error); throw error; }
+  },
+
+  renameTeam: async (teamId, name) => {
+    try { await weworkApi.renameTeam(teamId, name); await get().hydrate(); }
     catch (error) { reportError(set, error); throw error; }
   },
 
@@ -585,6 +596,11 @@ export const useWeWorkStore = create<WeWorkState>()((set, get) => ({
   })),
 
   sendWorkbenchMessage: async (employeeId, text, tabId = 'private') => {
+    const execution = get().teams.flatMap(team => team.employees).find(employee => employee.id === employeeId)?.activeSession.execution;
+    if (weworkMode === 'local' && (!execution?.model.modelId || execution.enabled === false)) {
+      reportError(set, new Error('请先完成助手执行器与模型配置，再开始会话。'), employeeId);
+      return false;
+    }
     if (hostManagedWeWork && runtimeCapableHost) {
       try {
         await queueWorkbenchOperation(employeeId, async () => {

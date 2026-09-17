@@ -1,5 +1,5 @@
 import { importAttachment } from './attachments.mjs';
-import { app, BrowserWindow, dialog, ipcMain, Menu } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SidecarSupervisor } from "./sidecar-supervisor.js";
@@ -31,6 +31,7 @@ supervisor.on("stderr", (message) => { diagnostics.add('error', 'runtime', messa
 const routes = {
   weworkCall: ["POST", "/v1/wework/call", (p) => p],
   dataInfo: ["GET", "/v1/data/info"],
+  exportWorkspace: ["POST", "/v1/data/export", (p) => p], importWorkspace: ["POST", "/v1/data/import", (p) => p],
   harnesses: ["GET", "/v1/harnesses", null, (value) => value.installations],
   harnessPolicy: ["GET", "/v1/harnesses/policy"], setHarnessPolicy: ["POST", "/v1/harnesses/policy", (p) => p],
   harnessModels: ["GET", "/v1/harnesses/models"], saveHarnessModel: ["POST", "/v1/harnesses/models", (p) => p],
@@ -51,9 +52,26 @@ const routes = {
 };
 
 ipcMain.handle("wework-host:invoke", async (_event, { method, payload }) => {
+  if (method === 'openExternal') {
+    const url = String(payload?.url ?? '');
+    if (!/^https?:\/\//i.test(url)) throw new Error('Only http and https links can be opened');
+    await shell.openExternal(url);
+    return true;
+  }
   if (method === 'importAttachment') return importAttachment(app.getPath('userData'), payload);
   if (method === 'diagnostics') return diagnostics.snapshot({ host: supervisor.endpoint ? 'ready' : 'unavailable', pid: supervisor.child?.pid ?? null });
   if (method === 'clearDiagnostics') { diagnostics.clear(); return diagnostics.snapshot({ host: supervisor.endpoint ? 'ready' : 'unavailable', pid: supervisor.child?.pid ?? null }); }
+  if (method === 'exportWorkspace') {
+    const teamId = typeof payload?.teamId === 'string' ? payload.teamId : undefined;
+    const result = await dialog.showSaveDialog(BrowserWindow.fromWebContents(_event.sender), { title: teamId ? '导出团队' : '导出全部 WeWork 团队', defaultPath: join(app.getPath('downloads'), `WeWork-${teamId ?? 'all'}-${new Date().toISOString().slice(0, 10)}.zip`), filters: [{ name: 'WeWork ZIP', extensions: ['zip'] }] });
+    if (result.canceled || !result.filePath) return null;
+    payload = { archivePath: result.filePath.endsWith('.zip') ? result.filePath : `${result.filePath}.zip`, teamId };
+  }
+  if (method === 'importWorkspace') {
+    const result = await dialog.showOpenDialog(BrowserWindow.fromWebContents(_event.sender), { title: '导入 WeWork 工作区', properties: ['openFile'], filters: [{ name: 'WeWork ZIP', extensions: ['zip'] }] });
+    if (result.canceled || !result.filePaths[0]) return null;
+    payload = { archivePath: result.filePaths[0] };
+  }
   if (method === "chooseLocalWorkspace") {
     return chooseDirectory(BrowserWindow.fromWebContents(_event.sender));
   }

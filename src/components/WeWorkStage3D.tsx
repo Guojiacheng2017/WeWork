@@ -155,6 +155,8 @@ export function WeWorkStage3D({
   onAddEmployee,
   draggedWork,
   onAssignWork,
+  hideAddSeat = false,
+  onFocusSettled,
 }: {
   employees: WeWorkEmployee[];
   deliveries?: import('../domain/wework').WeWorkTeam['collaborationDeliveries'];
@@ -166,16 +168,18 @@ export function WeWorkStage3D({
   onAddEmployee: () => void;
   draggedWork?: WorkItem | null;
   onAssignWork?: (work: WorkItem, employee: WeWorkEmployee) => void;
+  hideAddSeat?: boolean;
+  onFocusSettled?: (employeeId: string) => void;
 }) {
   const reducedMotion = useSystemReducedMotion();
   const seats = useMemo<StageSeat[]>(() => [
     ...employees.map((employee) => ({ key: employeeSeatKey(employee.id), kind: "employee" as const, employee })),
-    ADD_EMPLOYEE_SEAT,
-  ], [employees]);
-  const fallbackSeatKey = selectedEmployeeId ? employeeSeatKey(selectedEmployeeId) : seats[0].key;
+    ...(hideAddSeat ? [] : [ADD_EMPLOYEE_SEAT]),
+  ], [employees, hideAddSeat]);
+  const fallbackSeatKey = selectedEmployeeId ? employeeSeatKey(selectedEmployeeId) : seats[0]?.key ?? '';
   const [selectedSeatKey, setSelectedSeatKey] = useState(fallbackSeatKey);
   const selectedSeatKeyRef = useRef(fallbackSeatKey);
-  const selectedIndex = Math.max(0, seats.findIndex((seat) => seat.key === selectedSeatKey));
+  const selectedIndex = Math.max(0, seats.findIndex((seat) => seat.key === (hideAddSeat && selectedEmployeeId ? employeeSeatKey(selectedEmployeeId) : selectedSeatKey)));
   const [frame, setFrame] = useState<ProjectionFrame>({
     projections: seats.map((_, index) => {
       const angle = index / Math.max(1, seats.length) * Math.PI * 2;
@@ -190,6 +194,12 @@ export function WeWorkStage3D({
   const supportsWebGL = typeof window !== "undefined"
     && typeof window.WebGLRenderingContext !== "undefined"
     && typeof window.ResizeObserver !== "undefined";
+
+  useEffect(() => {
+    const targetAngle = getCameraAzimuth(selectedIndex, seats.length);
+    const angleDifference = Math.abs(Math.atan2(Math.sin(frame.azimuth - targetAngle), Math.cos(frame.azimuth - targetAngle)));
+    if (mode === 'eyeLevel' && selectedEmployeeId && (frame.ready && frame.settled && frame.eyeLevelProgress > 0.99 && angleDifference < 0.01 || !supportsWebGL)) onFocusSettled?.(selectedEmployeeId);
+  }, [mode, selectedEmployeeId, selectedIndex, seats.length, frame, supportsWebGL, onFocusSettled]);
 
   useEffect(() => {
     if (selectedEmployeeId) {
@@ -214,6 +224,7 @@ export function WeWorkStage3D({
 
   const workbenchOpening = useRef(false);
   const openEmployeeWorkbench = (source: HTMLElement, color: string) => {
+    if (onFocusSettled && selectedEmployeeId) { onFocusSettled(selectedEmployeeId); return; }
     if (workbenchOpening.current) return;
     const transitionDocument = document as Document & {
       startViewTransition?: (update: () => void | Promise<void>) => { finished: Promise<void> };
@@ -281,7 +292,7 @@ export function WeWorkStage3D({
 
   return (
     <section
-      aria-label="Employee 办公室舞台"
+      aria-label="助手协作区"
       data-preserve-motion
       className="wework-stage"
       data-mode={mode}

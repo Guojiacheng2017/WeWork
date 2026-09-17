@@ -25,23 +25,35 @@ import {
 import { weworkHost, type HarnessModel, type RuntimeEvent } from '../../runtime/weworkHost';
 import { executionWithCatalogModel } from '../team/workspaceDraft';
 import { EmployeeConfigDialog } from '../team/TeamManagementView';
+import { ExecutionDetails } from '../common/ExecutionDetails';
+import { MessageActions } from '../common/MessageActions';
 import { MarkdownMessage } from '../common/MarkdownMessage';
 import { ConversationComposer } from '../common/ConversationComposer';
 import { agentPermissionOptions } from '../../domain/agentPermissions';
 import type { AgentPermissionMode } from '../../domain/wework';
 import { groupWorkbenchTimeline } from './workbenchTimeline';
 
-export const EmployeeWorkbench: React.FC = () => {
-  const { teams, selectedTeamId, selectedEmployeeId, workbenchTabId, selectWorkbenchTab, isWorkbenchOpen, closeWorkbench, sendWorkbenchMessage, completeCurrentWork, returnCurrentWork, cancelWork, stopEmployee, operationNotice, dismissError, workbenchNotice } =
+export const EmployeeWorkbench: React.FC<{ embedded?: boolean; employeeId?: string; pageId?: string; content?: 'conversation' | 'details'; onSettings?: () => void }> = ({ embedded = false, employeeId, pageId, content = 'conversation', onSettings }) => {
+  const { teams, selectedTeamId, selectedEmployeeId: storeEmployeeId, workbenchTabId: storeTabId, selectWorkbenchTab, isWorkbenchOpen: modalOpen, closeWorkbench, sendWorkbenchMessage, completeCurrentWork, returnCurrentWork, cancelWork, stopEmployee, operationNotice, dismissError, workbenchNotice } =
     useWeWorkStore();
+  const selectedEmployeeId = employeeId ?? storeEmployeeId;
+  const isWorkbenchOpen = embedded || modalOpen;
+  const workbenchTabId = pageId ?? storeTabId;
   useEffect(() => {
     const dismiss = (event: Event) => document.querySelectorAll('details.group\\/context[open]').forEach(node => { if (!node.contains(event.target as Node)) node.removeAttribute('open'); });
     document.addEventListener('pointerdown', dismiss);
     return () => document.removeEventListener('pointerdown', dismiss);
   }, []);
   const contextRef = useRef<HTMLDetailsElement>(null);
-  const [drafts, setDrafts] = useState<Record<string,string>>({});
-  const draftKey = `${selectedEmployeeId}:${workbenchTabId}`;
+  const [drafts, setDrafts] = useState<Record<string,string>>(() => {
+    try {
+      const saved: unknown = JSON.parse(sessionStorage.getItem('wework.conversationDrafts') ?? '{}');
+      return saved && typeof saved === 'object' && !Array.isArray(saved)
+        ? Object.fromEntries(Object.entries(saved).filter(([, value]) => typeof value === 'string')) : {};
+    } catch { return {}; }
+  });
+  const draftKey = `${selectedTeamId}:${selectedEmployeeId}:${workbenchTabId}`;
+  useEffect(() => { try { sessionStorage.setItem('wework.conversationDrafts', JSON.stringify(drafts)); } catch { /* Storage may be unavailable. */ } }, [drafts]);
   const inputText = drafts[draftKey] ?? '';
   const setInputText = (value: string) => setDrafts(previous=>({...previous,[draftKey]:value}));
   const [seen, setSeen] = useState<Record<string,string>>({});
@@ -65,7 +77,7 @@ export const EmployeeWorkbench: React.FC = () => {
     return () => { unsubscribe(); if (timer) window.clearTimeout(timer); };
   }, []);
   useEffect(() => { if (isWorkbenchOpen) void weworkHost.harnessModels().then((catalog) => setHarnessModels(catalog.models)).catch(() => setHarnessModels([])); }, [isWorkbenchOpen, selectedEmployeeId]);
-  const dialogRef = useDialogFocus(isWorkbenchOpen, () => {
+  const dialogRef = useDialogFocus(isWorkbenchOpen && !embedded, () => {
     if (selectedArtifactId) setSelectedArtifactId(null);
     else closeWorkbench();
   });
@@ -84,7 +96,7 @@ export const EmployeeWorkbench: React.FC = () => {
   const selectedTab = tabs.find(tab=>tab.id===workbenchTabId) ?? tabs[0];
   const tabId = selectedTab?.id ?? 'private';
   useEffect(() => {
-    if (!isWorkbenchOpen) return undefined;
+    if (!isWorkbenchOpen || embedded) return undefined;
     const closeCurrentLayer = (event: Event) => {
       if (selectedArtifactId) {
         event.preventDefault();
@@ -98,9 +110,9 @@ export const EmployeeWorkbench: React.FC = () => {
     };
     window.addEventListener('wework:close-current-layer', closeCurrentLayer);
     return () => window.removeEventListener('wework:close-current-layer', closeCurrentLayer);
-  }, [isWorkbenchOpen, selectedArtifactId, tabId, tabs]);
+  }, [isWorkbenchOpen, embedded, selectedArtifactId, tabId, tabs]);
   useEffect(() => {
-    if (!isWorkbenchOpen || selectedArtifactId || !tabs.length) return;
+    if (!isWorkbenchOpen || embedded || selectedArtifactId || !tabs.length) return;
     const cycle = (event: KeyboardEvent) => {
       if (event.key !== 'Tab' || event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return;
       const target = event.target as HTMLElement | null;
@@ -118,7 +130,7 @@ export const EmployeeWorkbench: React.FC = () => {
     };
     document.addEventListener('keydown', cycle, true);
     return () => document.removeEventListener('keydown', cycle, true);
-  }, [isWorkbenchOpen, selectedArtifactId, tabId, tabs, selectWorkbenchTab, dialogRef]);
+  }, [isWorkbenchOpen, embedded, selectedArtifactId, tabId, tabs, selectWorkbenchTab, dialogRef]);
 
   const messages = employee && currentTeam ? tabMessages(currentTeam,employee,tabId) : [];
   const selectedSession = selectedTab?.session ?? (employee ? {...employee.activeSession,id:`uninitialized-${tabId}`,messages:[],metrics:[],contextRatio:0,contextMeasuredAt:undefined,activity:undefined} : undefined);
@@ -137,9 +149,10 @@ export const EmployeeWorkbench: React.FC = () => {
   const sendingRef = useRef(false);
   if (!isWorkbenchOpen || !currentEmployee) return null;
 
+  const needsConfiguration = weworkMode === 'local' && (!currentEmployee.activeSession.execution?.model.modelId || currentEmployee.activeSession.execution.enabled === false);
   const serviceError = operationNotice?.employeeId === currentEmployee.id && (!operationNotice.tabId || operationNotice.tabId === tabId) ? operationNotice.message : null;
   const handleSend = async (message = inputText) => {
-    if (sendingRef.current) return;
+    if (sendingRef.current || needsConfiguration) return false;
     if (!message.trim()) return false;
     conversation.latest();
     const draft = message;
@@ -163,9 +176,9 @@ export const EmployeeWorkbench: React.FC = () => {
 
   const workStatus = currentEmployee.activeSession.activity ?? {state:'idle',detail:readOnlyWork ? '工作未在执行，可查看记录' : '当前会话未在执行'};
   return (
-    <div className="ww-dialog-backdrop fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-200" onMouseDown={(event) => { if (event.target === event.currentTarget) closeWorkbench(); }}>
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={`${currentEmployee.displayName} 工作台`} tabIndex={-1} style={{ viewTransitionName: 'employee-workbench' }} data-details-open={detailsOpen} className="employee-workbench group/workbench relative bg-white w-full max-w-5xl h-[88vh] rounded-2xl shadow-2xl border border-slate-200/90 flex flex-col overflow-hidden" onMouseDown={(event) => event.stopPropagation()}>
-            <div role="tablist" aria-label="助手会话" className="workbench-folder-tabs">
+    <div className={embedded ? "workspace-employee-content" : "ww-dialog-backdrop fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-200"} onMouseDown={(event) => { if (!embedded && event.target === event.currentTarget) closeWorkbench(); }}>
+      <div ref={embedded ? undefined : dialogRef} role={embedded ? undefined : "dialog"} aria-modal={embedded ? undefined : true} aria-label={`${currentEmployee.displayName} 工作台`} tabIndex={-1} style={embedded ? undefined : { viewTransitionName: 'employee-workbench' }} data-details-open={detailsOpen} className={embedded ? "workspace-employee-inner" : "employee-workbench group/workbench relative bg-white w-full max-w-5xl h-[88vh] rounded-2xl shadow-2xl border border-slate-200/90 flex flex-col overflow-hidden"} onMouseDown={(event) => event.stopPropagation()}>
+            {!embedded && <div role="tablist" aria-label="助手会话" className="workbench-folder-tabs">
               {tabs.map(tab=>{
                 const tabRows=employee && currentTeam ? tabMessages(currentTeam,employee,tab.id) : [];
                 const unread=tab.id!==tabId && tabRows.length>0 && seen[`${employee?.id}:${tab.id}`]!==`${tabRows.length}:${tabRows.at(-1)?.text ?? ''}`;
@@ -180,11 +193,11 @@ export const EmployeeWorkbench: React.FC = () => {
                 <summary className="workbench-folder-tab" aria-label="重新打开任务页签"><span>已关闭任务</span><ChevronDown size={12}/></summary>
                 <div className="workbench-reopen-menu" role="menu">{hiddenTabs.map(tab=><button type="button" role="menuitem" key={tab.id} onClick={event=>{event.currentTarget.closest('details')?.removeAttribute('open');setClosedTabs(previous=>({...previous,[selectedEmployeeId ?? '']:(previous[selectedEmployeeId ?? ''] ?? []).filter(value=>value!==tab.id)}));selectWorkbenchTab(tab.id);}}>{tab.title}</button>)}</div>
               </details>}
-            </div>
+            </div>}
         {/* Content Body */}
         <div className="workbench-folder-body min-h-0 flex-1 flex overflow-hidden">
           {/* Left Column: Task & Conversation (60%) */}
-          <div className="workbench-conversation min-w-0 flex-1 border-slate-100 flex flex-col bg-white">
+          {(!embedded || content === "conversation") && <div className="workbench-conversation min-w-0 flex-1 border-slate-100 flex flex-col bg-white">
             {tabId==='group'&&<p className="border-b border-slate-100 px-4 py-2 text-[11px] text-slate-500">{currentTeam?.name} · {employee?.displayName} 可查看的群聊消息；发送内容会进入群聊。</p>}
             {/* Active Task Banner if present */}
             {currentEmployee.currentWorkItem && (
@@ -214,7 +227,7 @@ export const EmployeeWorkbench: React.FC = () => {
             {/* Conversation Messages */}
             {tabId==='private'&&<SessionManager key={currentEmployee.id} employee={currentEmployee}/>}<div ref={conversation.ref} onScroll={conversation.onScroll} id="workbench-tab-panel" role="tabpanel" aria-labelledby={`tab-${tabId}`} aria-label="助手会话消息" className="min-h-0 flex-1 p-4 overflow-y-auto space-y-3 bg-slate-50/30">
               {groupWorkbenchTimeline(currentEmployee.activeSession.messages).map((entry) => {
-                if(entry.kind==='activity') return <details key={entry.messages[0].id} className="group mx-auto my-2 w-full max-w-[90%] text-[11px] text-slate-400"><summary className="flex cursor-pointer list-none items-center justify-center gap-1.5 rounded-full border border-slate-200/60 bg-slate-100 px-3 py-1 hover:text-slate-600"><Activity className="h-3 w-3"/><span>执行过程 · {entry.messages.length} 项活动</span><span className="group-open:hidden">展开</span><span className="hidden group-open:inline">收起</span></summary><ol className="mt-2 max-h-56 space-y-2 overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 leading-5 text-slate-500">{entry.messages.map(message=><li key={message.id} className="break-words whitespace-pre-wrap">{message.text.replace(/^思考\s*·\s*/,'')}</li>)}</ol></details>;
+                if (entry.kind === 'activity') return <ExecutionDetails key={entry.messages[0].id} messages={entry.messages} endTime={entry.endTime} running={workStatus.state === 'working' && Boolean(entry.messages.at(-1)?.runtimeRunId) && entry.messages.at(-1)?.runtimeRunId === currentEmployee.activeSession.messages.at(-1)?.runtimeRunId} />;
                 const msg=entry.message;
                 const isUser = msg.sender === 'user';
                 const isSystem = msg.sender === 'system';
@@ -233,7 +246,7 @@ export const EmployeeWorkbench: React.FC = () => {
                 return (
                   <div
                     key={msg.id}
-                    className={`flex items-start gap-2.5 ${isUser ? 'flex-row-reverse' : ''}`}
+                    className={`group/message flex items-start gap-2.5 ${isUser ? 'flex-row-reverse' : ''}`}
                   >
                     {!isUser && (
                       <EmployeeBotAvatar
@@ -243,21 +256,11 @@ export const EmployeeWorkbench: React.FC = () => {
                         showBadge={false}
                       />
                     )}
-                    <div
-                      className={`group/message max-w-md rounded-2xl px-4 py-2.5 text-xs leading-relaxed shadow-xs ${
-                        isUser
-                          ? 'bg-slate-900 text-white rounded-br-xs'
-                          : 'bg-white text-slate-800 border border-slate-200/90 rounded-bl-xs'
-                      }`}
-                    >
-                      <MarkdownMessage inverted={isUser}>{msg.text}</MarkdownMessage>
-                      <div
-                        className={`mt-1 text-right font-mono text-[11px] opacity-0 transition-opacity group-hover/message:opacity-100 group-focus-within/message:opacity-100 ${
-                          isUser ? 'text-slate-400' : 'text-slate-400'
-                        }`}
-                      >
-                        {msg.time}
+                    <div className={`min-w-0 max-w-[85%] ${isUser ? 'flex flex-col items-end' : 'flex-1'}`}>
+                      <div className={`min-w-0 max-w-full rounded-2xl text-xs leading-relaxed ${isUser ? 'bg-[#e8f3ff] px-4 py-3 text-[#183653]' : 'text-slate-800'}`}>
+                        <MarkdownMessage>{msg.text}</MarkdownMessage>
                       </div>
+                      <MessageActions text={msg.text} time={msg.time} />
                     </div>
                   </div>
                 );
@@ -270,8 +273,9 @@ export const EmployeeWorkbench: React.FC = () => {
             {workStatus.state === 'error' && <div role="status" className="mx-4 rounded-xl bg-rose-50 px-4 py-2 text-xs text-rose-700">最近执行异常：{workStatus.detail}</div>}
             {serviceError && <OperationNotice message={serviceError} onDismiss={dismissError} />}
             {conversation.away && <LatestMessageButton onClick={conversation.latest}/>}
+            {needsConfiguration && <button type="button" className="m-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-800" onClick={onSettings ?? (() => { setDetailsOpen(true); setRightPanel('config'); })}>请先配置执行器与模型，再开始会话。</button>}
             <ConversationComposer key={`${currentEmployee.id}:${tabId}`}
-              disabled={readOnlyWork}
+              disabled={readOnlyWork || needsConfiguration}
               value={inputText}
               onChange={setInputText}
               onSubmit={handleSend}
@@ -285,7 +289,7 @@ export const EmployeeWorkbench: React.FC = () => {
                   {name:'pi:status',description:'查看执行器会话状态',currentValue:'Pi 原生',run:async()=>{const result=await nativeHost!.weworkCall('nativeHarnessCommand',[currentEmployee.id,'pi:status']) as {totalMessages?:number};return `Pi 原生 · 当前执行器会话有 ${result.totalMessages ?? '未知数量的'} 条消息`; }},
                 ] : []),
                 {name:'context',description:'查看上下文',run:()=>{if(contextRef.current)contextRef.current.open=true;}},
-                {name:'settings',description:'助手配置',run:()=>{setDetailsOpen(true);setRightPanel('config');}},
+                {name:'settings',description:'助手配置',run:()=>{if(onSettings)onSettings();else {setDetailsOpen(true);setRightPanel('config');}}},
                 ...(tabId==='private' ? [{name:'clear',disabledReason:employee?.executionActivity?.state==='working' && workStatus.state!=='working' ? '其他 Tab 正在执行，请勿重置助手上下文' : undefined,description:'重新开始，保留只读历史',run:async()=>{if(!window.confirm('重新开始当前对话？旧消息会保留为只读历史，当前执行将先停止。'))throw new Error('已取消重新开始');await useWeWorkStore.getState().resetEmployeeContext(currentEmployee.id);}}] : []),
               ]}
               leadingControls={
@@ -309,16 +313,16 @@ export const EmployeeWorkbench: React.FC = () => {
                 </label>
               </>}
             />
-          </div>
+          </div>}
 
           {/* Right Column: cards are created only for information the employee has. */}
-          {!detailsOpen && <button type="button" className="workbench-employee-head" aria-label={`展开 ${currentEmployee.displayName} 的助手侧栏`} aria-expanded={false} onClick={() => setDetailsOpen(true)}><EmployeeBotAvatar size={88} bodyColor={currentEmployee.color} status={currentEmployee.status} showBadge={false} /><span>{currentEmployee.displayName}</span><small>{currentEmployee.roleName}</small></button>}
-          {detailsOpen && <div className="workbench-sidebar flex min-h-0 shrink-0 flex-col overflow-hidden border-l border-slate-200 bg-white">
+          {!embedded && !detailsOpen && <button type="button" className="workbench-employee-head" aria-label={`展开 ${currentEmployee.displayName} 的助手侧栏`} aria-expanded={false} onClick={() => setDetailsOpen(true)}><EmployeeBotAvatar size={88} bodyColor={currentEmployee.color} status={currentEmployee.status} showBadge={false} /><span>{currentEmployee.displayName}</span><small>{currentEmployee.roleName}</small></button>}
+          {(embedded ? content === "details" : detailsOpen) && <div className="workbench-sidebar flex min-h-0 shrink-0 flex-col overflow-hidden border-l border-slate-200 bg-white">
             <Button variant="ghost" type="button" onClick={() => setDetailsOpen(false)} className="workbench-identity m-4 mb-0 shrink-0 flex items-center gap-3 p-3 pr-12 text-left" aria-label="收起助手侧栏"><EmployeeBotAvatar size={36} bodyColor={currentEmployee.color} status={currentEmployee.status} showBadge={false} /><span className="min-w-0 flex-1"><span className="flex items-center gap-2"><strong className="truncate text-sm text-slate-900">{currentEmployee.displayName}</strong>{currentEmployee.isLead && <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[8px] font-bold text-rose-700">LEADER</span>}</span><span className="mt-1 block truncate text-[11px] text-slate-500">{currentEmployee.roleName} · {currentHarness}</span><span className={`mt-1 inline-block rounded px-1.5 py-0.5 text-[11px] ${runtimeEvent?.type === 'run.failed' ? 'bg-rose-50 text-rose-700' : runtimeEvent ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{runtimeEvent?.type === 'run.started' ? 'Runtime 已启动' : runtimeEvent?.type === 'assistant.delta' ? 'Runtime 输出中' : runtimeEvent?.type === 'assistant.activity' ? (runtimeEvent.activity === 'tool' ? 'Runtime 调用工具' : 'Runtime 处理中') : runtimeEvent?.type === 'run.succeeded' ? 'Runtime 已完成' : runtimeEvent?.type === 'run.failed' ? 'Runtime 失败' : currentEmployee.status === 'working' ? '正在执行' : currentEmployee.activeSession.messages.some((message) => message.sender === 'employee') ? '最近回复已保存' : window.weworkHost ? '桌面执行器已连接' : '浏览器模式'}</span></span></Button>
             <div className={rightPanel === 'config' ? 'mt-3 min-h-0 flex-1 overflow-hidden' : 'workbench-details mt-3 min-h-0 flex-1 overflow-y-auto p-4 space-y-4'}>
             {rightPanel === 'config' ? <EmployeeConfigDialog embedded employee={employee!} team={currentTeam} onClose={() => setRightPanel('details')} /> : <>
             <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-xs">
-              <div className="flex items-center justify-between"><h4 className="text-xs font-bold text-slate-800">{selectedTab?.title}</h4><div className="flex items-center gap-2"><button type="button" onClick={() => setRightPanel('config')} className="text-[11px] font-semibold text-sky-700 hover:underline">助手配置</button><span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${currentEmployee.status === 'working' ? 'bg-sky-50 text-sky-700' : 'bg-emerald-50 text-emerald-700'}`}>{workStatus.state === 'working' ? '运行中' : '就绪'}</span></div></div>
+              <div className="flex items-center justify-between"><h4 className="text-xs font-bold text-slate-800">{selectedTab?.title}</h4><div className="flex items-center gap-2"><button type="button" onClick={() => onSettings ? onSettings() : setRightPanel('config')} className="text-[11px] font-semibold text-sky-700 hover:underline">助手配置</button><span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${currentEmployee.status === 'working' ? 'bg-sky-50 text-sky-700' : 'bg-emerald-50 text-emerald-700'}`}>{workStatus.state === 'working' ? '运行中' : '就绪'}</span></div></div>
               <dl className="mt-3 grid grid-cols-[4.5rem_minmax(0,1fr)] gap-x-3 gap-y-2 text-[11px]"><dt className="text-slate-400">Harness</dt><dd className="font-semibold text-slate-700">{currentEmployee.activeSession.execution?.adapter ?? currentEmployee.runtime}</dd><dt className="text-slate-400">模型</dt><dd className="truncate font-semibold text-slate-700" title={currentEmployee.activeSession.execution?.model.modelId}>{currentEmployee.activeSession.execution?.model.modelId ?? '未配置'}</dd><dt className="text-slate-400">Session ID</dt><dd className="truncate font-mono text-slate-500" title={currentEmployee.activeSession.id}>{currentEmployee.activeSession.id}</dd><dt className="text-slate-400">Workspace</dt><dd className="truncate text-slate-500" title={currentEmployee.workspaceAssignment?.rootPath ?? currentTeam?.workspaceAssignment?.rootPath}>{currentEmployee.workspaceAssignment?.rootPath ?? currentTeam?.workspaceAssignment?.rootPath ?? '团队默认目录'}</dd><dt className="text-slate-400">消息</dt><dd className="text-slate-500">{currentEmployee.activeSession.messages.length} 条</dd></dl>
             </div>
             {/* 2. Built-in Skills */}

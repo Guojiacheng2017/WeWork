@@ -9,7 +9,7 @@ import { canSubmitEmployeeOnboarding, initialHarnessForOnboarding, initialModelR
 
 const runtimeFor = (harness: HarnessId): 'Pi' | 'Claude Code' | 'DSH' | 'Workspace' => harness === 'pi' ? 'Pi' : harness === 'claude-code' ? 'Claude Code' : harness === 'smalldashharness' ? 'DSH' : 'Workspace';
 
-export const AddEmployeeModal: React.FC = () => {
+export const AddEmployeeModal: React.FC<{ configureAfterCreation?: boolean }> = ({ configureAfterCreation = false }) => {
   const { isAddEmployeeOpen, setAddEmployeeOpen, addEmployee, selectedTeamId, teams } = useWeWorkStore();
   const currentTeam = teams.find((t) => t.id === selectedTeamId);
 
@@ -20,7 +20,7 @@ export const AddEmployeeModal: React.FC = () => {
   const [installations, setInstallations] = useState<HarnessInstallation[]>([]);
   const [models, setModels] = useState<HarnessModel[]>([]);
   const [defaults, setDefaults] = useState<Partial<Record<HarnessId, string>>>({});
-  const [harness, setHarness] = useState<HarnessId>('smalldashharness');
+  const [harness, setHarness] = useState<HarnessId>('pi');
   const [modelRef, setModelRef] = useState('');
   const [loadError, setLoadError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -28,6 +28,7 @@ export const AddEmployeeModal: React.FC = () => {
 
   useEffect(() => {
     if (!isAddEmployeeOpen) return;
+    if (configureAfterCreation) { setDisplayName(randomEmployeeName(currentTeam?.employees.map(employee => employee.displayName))); setRoleName(''); setLoadError(''); return; }
     let cancelled = false;
     setLoading(true); setModels([]); setInstallations([]); setModelRef(''); setLoadError('');
     setDisplayName(randomEmployeeName(currentTeam?.employees.map(employee => employee.displayName)));
@@ -40,7 +41,7 @@ export const AddEmployeeModal: React.FC = () => {
       if (firstHarness) setHarness(firstHarness); else setLoadError(window.weworkHost ? '没有可用模型，请在设置中允许执行器并完成模型检查。' : '浏览器模式无法探测本机执行器。请在桌面版配置执行器与模型后办理入职。');
     }).catch((error) => { if (!cancelled) setLoadError(error instanceof Error ? error.message : String(error)); }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [isAddEmployeeOpen, selectedTeamId]);
+  }, [isAddEmployeeOpen, selectedTeamId, configureAfterCreation]);
 
   const harnessModels = useMemo(() => models.filter((model) => model.harness === harness), [models, harness]);
   const harnessReady = installations.some((installation) => installation.harness === harness);
@@ -48,6 +49,24 @@ export const AddEmployeeModal: React.FC = () => {
   useEffect(() => { setModelRef(initialModelRefForOnboarding(harness, harnessModels, defaults)); setRuntime(runtimeFor(harness)); }, [harness, harnessModels, defaults]);
 
   if (!isAddEmployeeOpen) return null;
+
+  if (configureAfterCreation) return <Dialog open onClose={() => setAddEmployeeOpen(false)} busy={saving} title="新建助手" description="先创建助手，再在设置页面选择执行器、模型与技能。">
+    <form className="space-y-4" onSubmit={async event => {
+      event.preventDefault(); if (saving || !displayName.trim() || !currentTeam) return;
+      setSaving(true); setLoadError('');
+      try {
+        await addEmployee(currentTeam.id, displayName.trim(), roleName.trim(), 'Workspace');
+        const state = useWeWorkStore.getState();
+        if (state.selectedEmployeeId) state.openWorkbench(state.selectedEmployeeId, 'settings');
+      } catch (error) { setLoadError(error instanceof Error ? error.message : String(error)); }
+      finally { setSaving(false); }
+    }}>
+      <Field label="助手名称"><Input autoFocus required value={displayName} onChange={event => setDisplayName(event.target.value)} /></Field>
+      <Field label="职责（可稍后补充）"><Input value={roleName} onChange={event => setRoleName(event.target.value)} /></Field>
+      {loadError && <p role="alert" className="text-sm text-rose-600">{loadError}</p>}
+      <DialogFooter><Button type="button" variant="secondary" onClick={() => setAddEmployeeOpen(false)}>取消</Button><Button type="submit" disabled={saving || !displayName.trim()}>{saving ? '正在创建…' : '创建并配置'}</Button></DialogFooter>
+    </form>
+  </Dialog>;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -25,6 +25,7 @@ const remoteWeWorkApi = {
   createRuntimeProfile: (body: Omit<RuntimeProfile, 'id' | 'createdAt' | 'updatedAt'>) => request<RuntimeProfile>('/v1/runtime-profiles', { method: 'POST', body: JSON.stringify(body) }),
   bootstrap: (teams: WeWorkTeam[]) => request<{ imported: boolean }>('/v1/bootstrap', { method: 'POST', body: JSON.stringify({ teams }) }),
   createTeam: (body: object) => request<WeWorkTeam>('/v1/teams', { method: 'POST', body: JSON.stringify(body) }),
+  renameTeam: (teamId: string, name: string) => request<WeWorkTeam>(`/v1/teams/${teamId}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
   archiveTeam: (teamId: string) => request<WeWorkTeam>(`/v1/teams/${teamId}/archive`, { method: 'POST' }),
   restoreTeam: (teamId: string) => request<WeWorkTeam>(`/v1/teams/${teamId}/restore`, { method: 'POST' }),
   deleteTeam: (teamId: string) => request<{ deleted: string; workspaceRetained: true }>(`/v1/teams/${teamId}`, { method: 'DELETE' }),

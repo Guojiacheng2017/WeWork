@@ -57,13 +57,6 @@ test('external CLI installation is still not confused with WeWork execution read
   assert.equal(claude.capabilities.tools,false);
 });
 
-test('sdh is embedded only when its bundled runner is present', async () => {
-  const detector=new HarnessDetector({run:async()=>{throw new Error('missing');},bundledSdh:async()=>true});
-  const sdh=(await detector.detect()).find(row=>row.harness==='smalldashharness');
-  assert.equal(sdh.kind,'embedded');
-  assert.equal(sdh.available,true);
-  assert.equal(sdh.weworkToolsReady,true);
-});
 
 test('detects only allow-listed executables with lookup and version probes', async () => {
   const calls = [];

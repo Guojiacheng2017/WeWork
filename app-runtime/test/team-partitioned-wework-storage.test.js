@@ -189,3 +189,119 @@ test('read cache observes external index writes and in-place team edits', async 
   await writeFile(join(root, 'teams', safeTeamDirectory('a'), index.teams[0].file), JSON.stringify({ id: 'a', name: 'in-place edit with a different size' }));
   assert.equal(JSON.parse(storage.getItem()).teams[0].name, 'in-place edit with a different size');
 });
+
+for (const canonical of [false, true]) test(`snapshot retention and crash safety, canonical=${canonical}`, async t => {
+  const { readdir, utimes } = await import('node:fs/promises');
+  const root = await mkdtemp(join(tmpdir(), 'wework-retention-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const folder = id => canonical ? join(root, id, '.wework-state') : join(root, 'teams', safeTeamDirectory(id));
+  const options = canonical ? { teamPath: (id, file) => join(folder(id), file) } : {};
+  const storage = new TeamPartitionedWeWorkStorage(root, options);
+  for (let revision = 0; revision < 6; revision++) {
+    storage.setItem('', state(['a', 'b'].map(id => ({ id, revision, messages: ['preserved'] }))));
+    const index = JSON.parse(await readFile(storage.indexPath, 'utf8'));
+    for (const entry of index.teams) await utimes(join(folder(entry.id), entry.file), 100 + revision, 100 + revision);
+  }
+  for (const id of ['a', 'b']) {
+    const files = await readdir(folder(id));
+    assert.equal(files.length, 3);
+    const revisions = await Promise.all(files.map(async file => JSON.parse(await readFile(join(folder(id), file), 'utf8')).revision));
+    assert.deepEqual(revisions.sort(), [3, 4, 5]);
+  }
+  const before = await readFile(storage.indexPath, 'utf8');
+  const retained = await readdir(folder('a'));
+  await writeFile(join(folder('a'), 'team.json'), 'legacy');
+  await writeFile(join(folder('a'), 'notes.json'), 'unrelated');
+  const crashing = new TeamPartitionedWeWorkStorage(root, { ...options, hooks: { beforeRename(path) {
+    if (path === storage.indexPath) throw new Error('index failure');
+  } } });
+  assert.throws(() => crashing.setItem('', state([{ id: 'a', revision: 6 }])), /index failure/);
+  assert.equal(await readFile(storage.indexPath, 'utf8'), before);
+  for (const file of retained) assert.ok(await readFile(join(folder('a'), file)));
+  assert.deepEqual(JSON.parse(new TeamPartitionedWeWorkStorage(root, options).getItem()).teams,
+    ['a', 'b'].map(id => ({ id, revision: 5, messages: ['preserved'] })));
+  storage.setItem('', state([{ id: 'a', revision: 7 }]));
+  assert.equal(await readFile(join(folder('a'), 'team.json'), 'utf8'), 'legacy');
+  assert.equal(await readFile(join(folder('a'), 'notes.json'), 'utf8'), 'unrelated');
+  assert.equal((await readdir(folder('a'))).filter(file => /^team\.[a-f0-9-]+\.json$/.test(file)).length, 3);
+});
+
+test('unchanged teams reuse snapshots and identical saves perform no writes', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'wework-dedup-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const writes = [];
+  const storage = new TeamPartitionedWeWorkStorage(root, { hooks: { beforeRename(path) { writes.push(path); } } });
+  storage.setItem('', state([{ id: 'a', n: 1 }, { id: 'b', n: 1 }]));
+  const first = JSON.parse(await readFile(storage.indexPath, 'utf8'));
+  writes.length = 0;
+  storage.setItem('', state([{ id: 'a', n: 1 }, { id: 'b', n: 1 }]));
+  assert.deepEqual(writes, []);
+  storage.setItem('', state([{ id: 'a', n: 2 }, { id: 'b', n: 1 }], 2));
+  assert.equal(writes.length, 2);
+  const second = JSON.parse(await readFile(storage.indexPath, 'utf8'));
+  assert.equal(second.teams[1].file, first.teams[1].file);
+  assert.notEqual(second.teams[0].file, first.teams[0].file);
+});
+
+test('stream journal recovers deltas, compacts every minute and skips committed log records', async t => {
+  const { appendFile, stat } = await import('node:fs/promises');
+  const root = await mkdtemp(join(tmpdir(), 'wework-journal-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  let clock = 0, failReset = false;
+  const storage = new TeamPartitionedWeWorkStorage(root, { now: () => clock, hooks: { beforeRename(path) {
+    if (failReset && path.endsWith('.journal')) throw new Error('reset interrupted');
+  } } });
+  const content = 'x'.repeat(100000);
+  storage.setItem('', state([{ id: 'a', text: content }], 1));
+  const originalIndex = await readFile(storage.indexPath, 'utf8');
+  for (let i = 2; i <= 10; i++) storage.setItem('', state([{ id: 'a', text: content + '!'.repeat(i) }], i), 'stream');
+  assert.equal(await readFile(storage.indexPath, 'utf8'), originalIndex);
+  assert.ok((await stat(storage.journalPath)).size < 10000, 'journal contains deltas, not full historical text');
+  const restart = new TeamPartitionedWeWorkStorage(root);
+  assert.equal(JSON.parse(restart.getItem()).teams[0].text, content + '!'.repeat(10));
+  await appendFile(storage.journalPath, '{"partial":');
+  assert.equal(JSON.parse(restart.getItem()).eventCursor, 10);
+  storage.setItem('', state([{ id: 'a', text: content + 'recovered' }], 11), 'stream');
+  assert.equal(JSON.parse(new TeamPartitionedWeWorkStorage(root).getItem()).eventCursor, 11);
+  clock = 60000; failReset = true;
+  storage.setItem('', state([{ id: 'a', text: 'compacted' }], 12), 'stream');
+  assert.notEqual(await readFile(storage.indexPath, 'utf8'), originalIndex);
+  assert.equal(JSON.parse(new TeamPartitionedWeWorkStorage(root).getItem()).teams[0].text, 'compacted');
+  storage.setItem('', state([{ id: 'a', text: 'compacted tail' }], 13), 'stream');
+  assert.equal(JSON.parse(new TeamPartitionedWeWorkStorage(root).getItem()).teams[0].text, 'compacted tail');
+  failReset = false;
+  storage.setItem('', state([{ id: 'a', text: 'final' }], 14));
+  assert.equal(await readFile(storage.journalPath, 'utf8'), '');
+  assert.equal(JSON.parse(new TeamPartitionedWeWorkStorage(root).getItem()).teams[0].text, 'final');
+});
+
+test('real runtime event API uses journal until a terminal activity is saved', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'wework-stream-api-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const storage = new TeamPartitionedWeWorkStorage(root);
+  const api = createLocalWeWorkApi(storage);
+  const team = await api.createTeam({ name: 'Stream', runtime: 'Workspace' });
+  const employee = await api.addEmployee(team.id, { displayName: 'Writer', roleName: 'Writer', runtime: 'Workspace', skills: [] });
+  const before = await readFile(storage.indexPath, 'utf8');
+  for (let sequence = 1; sequence <= 5; sequence++) {
+    await api.appendRuntimeEvents(employee.id, employee.activeSession.id, 'run', [{ sequence, type: 'assistant.delta', text: 'hello' }]);
+    await api.snapshot();
+    assert.equal(await readFile(storage.indexPath, 'utf8'), before);
+  }
+  const restored = createLocalWeWorkApi(new TeamPartitionedWeWorkStorage(root));
+  const restoredEmployee = (await restored.snapshot()).teams[0].employees.find(item => item.id === employee.id);
+  assert.equal(restoredEmployee.activeSession.messages.at(-1).text, 'hello'.repeat(5));
+  await restored.setEmployeeActivity(employee.id, 'idle', 'complete');
+  assert.equal(await readFile(storage.journalPath, 'utf8'), '');
+});
+
+test('complete corrupted journal records fail closed', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'wework-journal-corrupt-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const storage = new TeamPartitionedWeWorkStorage(root);
+  storage.setItem('', state([{ id: 'a', text: 'base' }], 1));
+  storage.setItem('', state([{ id: 'a', text: 'base tail' }], 2), 'stream');
+  const original = await readFile(storage.journalPath, 'utf8');
+  await writeFile(storage.journalPath, original.replace(' tail', ' damaged'));
+  assert.throws(() => new TeamPartitionedWeWorkStorage(root).getItem(), /checksum mismatch/);
+});

@@ -74,6 +74,7 @@ export type SshTestRequest = {
 };
 export type WorkspaceProbe = { ok: boolean; latencyMs?: number; canonicalRoot?: string; error?: string };
 export type WeWorkDataInfo = { rootPath: string; configPath: string; teamsPath: string; runtimePath: string; platform: string; /** @deprecated old hosts only */ workspaceManifest?: string };
+export type WorkspaceTransferResult = { archivePath?: string; teamCount: number; rebindCount: number };
 export type WeWorkHostErrorCode = 'HOST_UNAVAILABLE' | 'HOST_UNAUTHORIZED' | 'CREDENTIAL_MISSING' | 'SSH_FAILED' | 'RUNTIME_PROFILE_MISSING' | 'RUN_ALREADY_ACTIVE' | 'RUN_NOT_ACTIVE' | 'VERSION_CONFLICT' | 'HOST_INTERNAL';
 
 export class WeWorkHostError extends Error {
@@ -94,6 +95,8 @@ export class WeWorkHost {
   setSdhConnection(_baseUrl: string): Promise<SdhConnection> { return Promise.reject(new WeWorkHostError('HOST_UNAVAILABLE','远程 Harness 配置需要 Desktop Host')); }
   skills(_assignment?: SkillDiscoveryRequest): Promise<SkillCatalogResult> { return Promise.resolve({ skills: [], reason: '浏览器模式无法扫描本机或 Workspace Skill；请使用 Desktop Host' }); }
   dataInfo(): Promise<WeWorkDataInfo> { return Promise.reject(new WeWorkHostError('HOST_UNAVAILABLE','数据目录需要 Desktop Host')); }
+  exportWorkspace(_teamId?: string): Promise<WorkspaceTransferResult | null> { return Promise.reject(new WeWorkHostError('HOST_UNAVAILABLE','工作区导出需要 Desktop Host')); }
+  importWorkspace(): Promise<WorkspaceTransferResult | null> { return Promise.reject(new WeWorkHostError('HOST_UNAVAILABLE','工作区导入需要 Desktop Host')); }
   setHarnessPolicy(_allowedHarnesses: HarnessId[]): Promise<{allowedHarnesses: HarnessId[]}> { return Promise.reject(new WeWorkHostError('HOST_UNAVAILABLE','设备策略需要 Desktop Host')); }
   saveHarnessModel(_input: HarnessModelInput): Promise<HarnessModel> { return Promise.reject(new WeWorkHostError('HOST_UNAVAILABLE','模型目录需要 Desktop Host')); }
   probeHarnessModel(_input: HarnessModelInput): Promise<{ok: boolean; modelIds?: string[]; error?: string}> { return Promise.reject(new WeWorkHostError('HOST_UNAVAILABLE','模型检查需要 Desktop Host')); }
@@ -189,6 +192,8 @@ export class LoopbackWeWorkHost {
   weworkCall(method: string, args: unknown[]) { return this.request<unknown>('/v1/wework/call', { method: 'POST', body: JSON.stringify({ method, args }) }); }
   currentWorkspace() { return this.request<ResolvedWorkspace>('/v1/workspaces/current'); }
   dataInfo() { return this.request<WeWorkDataInfo>('/v1/data/info'); }
+  exportWorkspace(_teamId?: string): Promise<WorkspaceTransferResult | null> { return Promise.reject(new WeWorkHostError('HOST_UNAVAILABLE','请在桌面版中导出工作区')); }
+  importWorkspace(): Promise<WorkspaceTransferResult | null> { return Promise.reject(new WeWorkHostError('HOST_UNAVAILABLE','请在桌面版中导入工作区')); }
   harnesses() { return this.request<{ installations: HarnessInstallation[] }>('/v1/harnesses').then((value) => value.installations); }
   harnessPolicy() { return this.request<{ allowedHarnesses: HarnessId[] }>('/v1/harnesses/policy'); }
   setHarnessPolicy(allowedHarnesses: HarnessId[]) { return this.request<{ allowedHarnesses: HarnessId[] }>('/v1/harnesses/policy', { method: 'POST', body: JSON.stringify({ allowedHarnesses }) }); }

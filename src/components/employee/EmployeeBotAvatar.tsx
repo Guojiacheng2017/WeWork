@@ -1,3 +1,4 @@
+import { product } from '../../product';
 import { employeeFrameColor } from '../../domain/employeeColor';
 import React from 'react';
 import { EmployeeBot, employeeStateForStatus, type EmployeeBotStatus } from './EmployeeBot';
@@ -17,7 +18,7 @@ export interface EmployeeBotAvatarProps {
 
 export const EmployeeBotAvatar: React.FC<EmployeeBotAvatarProps> = ({
   size = 120,
-  bodyColor = '#2563eb',
+  bodyColor = product.avatarColor,
   frameColor,
   status = 'idle',
   isHovered = false,

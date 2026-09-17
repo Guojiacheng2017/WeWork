@@ -51,7 +51,7 @@ export class RuntimeManager {
       this.journal.publish({ ...event, runId: run.id, employeeId: spec.employeeId });
       if (this.onEvents && ['assistant.delta', 'assistant.activity'].includes(event.type)) {
         pending.push({ ...event, sequence: ++sequence });
-        if (!timer) timer = setTimeout(flush, 75);
+        if (!timer) timer = setTimeout(flush, 1000);
       }
     };
     try {

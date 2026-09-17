@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { ArrowLeft, Plus, Settings2 } from 'lucide-react';
-import { WeWorkLogoMark } from '../employee/EmployeeBotIntro';
+import { WeWorkLogoMark } from '../employee/WeWorkLogoMark';
 import { Button, IconButton, Input, Textarea, FormSelect, Field, Badge, Dialog, DialogFooter, Select, Tabs, Tooltip, ViewSwitcher } from './index';
 import { ConversationComposer } from '../common/ConversationComposer';
 import './showcase.css';

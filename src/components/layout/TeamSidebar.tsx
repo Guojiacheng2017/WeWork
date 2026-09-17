@@ -1,8 +1,9 @@
+import { product } from '../../product';
 import { Button } from '../ui';
 import React, { useEffect, useRef, useState } from 'react';
 import { useWeWorkStore } from '../../state/weworkStore';
-import { Activity, Archive, ArchiveRestore, ChevronRight, Cpu, PanelLeftClose, PanelLeftOpen, Plus, Settings2, Trash2, UserRound, Users } from 'lucide-react';
-import { WeWorkLogoMark } from '../employee/EmployeeBotIntro';
+import { Activity, Archive, ArchiveRestore, ChevronRight, Cpu, Plus, Settings2, Trash2, UserRound, Users } from 'lucide-react';
+import { WeWorkLogoMark } from '../employee/WeWorkLogoMark';
 import type { PortalPage } from '../../domain/portalNavigation';
 
 type TeamSidebarProps = { collapsed: boolean; onToggle: () => void; activePortalPage: PortalPage | null; onPortalNavigate: (page: PortalPage | null) => void; onOpenMonitor: () => void };
@@ -30,22 +31,16 @@ export const TeamSidebar: React.FC<TeamSidebarProps> = ({ collapsed, onToggle, o
   return (
     <aside aria-label="团队侧边栏" data-collapsed={collapsed} className={`${collapsed ? 'w-[64px]' : 'w-[240px]'} relative h-full bg-white border-r border-slate-200/90 flex flex-col select-none shrink-0 z-10 shadow-xs transition-[width] duration-200 ease-out motion-reduce:transition-none`}>
       <div className="wework-window-controls">
-        <Button type="button" onClick={onToggle} aria-label={collapsed ? '展开侧边栏' : '收起侧边栏'} title={collapsed ? '展开侧边栏' : '收起侧边栏'}>
-          {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-        </Button>
       </div>
       {/* App Brand Header */}
       <div className={`border-b border-slate-100 flex items-center ${collapsed ? 'flex-col justify-center gap-2 px-2 py-3' : 'gap-2.5 p-4 pr-7'}`}>
-        <div className="w-8 h-8 shrink-0 flex items-center justify-center" data-wework-brand-target>
+        <button type="button" onClick={onToggle} aria-label={collapsed ? '展开侧边栏' : '收起侧边栏'} title={collapsed ? '展开侧边栏' : '收起侧边栏'} aria-expanded={!collapsed} className="wework-brand-control grid h-10 w-10 shrink-0 place-items-center rounded-xl transition-[background-color,box-shadow,transform] hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300 active:scale-95" data-wework-brand-target>
           <WeWorkLogoMark size={32} />
-        </div>
+        </button>
         {!collapsed && <div className="min-w-0 flex-1">
-          <h1 className="text-[13px] font-bold leading-tight text-slate-900">WeWork</h1>
-          <p className="mt-0.5 text-[11px] font-medium text-slate-400">工作平台</p>
+          <h1 className="text-[13px] font-bold leading-tight text-slate-900">{product.shortName}</h1>
+          <p className="mt-0.5 text-[11px] font-medium text-slate-400">{product.tagline}</p>
         </div>}
-        <Button type="button" onClick={onToggle} aria-label={collapsed ? '展开侧边栏' : '收起侧边栏'} title={collapsed ? '展开侧边栏' : '收起侧边栏'} className={`wework-brand-toggle grid h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 ${collapsed?'bg-white ring-1 ring-slate-200':''}`}>
-          {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-        </Button>
       </div>
 
       {/* Action: New Team */}
@@ -130,13 +125,14 @@ export const TeamSidebar: React.FC<TeamSidebarProps> = ({ collapsed, onToggle, o
           <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-slate-900 text-white"><UserRound className="h-4 w-4" /></span>
           {!collapsed && <><span className="min-w-0 flex-1 text-left"><strong className="block truncate text-xs text-slate-800">本地用户</strong><small className="block truncate text-[11px] text-slate-400">账户与设置</small></span><Settings2 className="h-4 w-4 text-slate-400 transition-transform group-open:rotate-45" /></>}
         </summary>
-        <div className={`ww-account-menu absolute bottom-[calc(100%+8px)] z-50 overflow-hidden rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl ${collapsed ? 'left-2 w-52' : 'left-3 right-3'}`}>
-          <div className="ww-account-heading"><span className="ww-account-avatar"><UserRound size={18} /></span><div><strong>本地用户</strong><span>此设备上的工作平台</span></div><span className="ww-account-status" title="本地模式" /></div>
-          <Button type="button" onClick={(event) => { setRuntimeProfileOpen(true, undefined, 'general'); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"><Settings2 className="h-4 w-4 text-slate-400" /><span className="flex-1">平台设置</span><ChevronRight className="h-3.5 w-3.5 text-slate-300" /></Button>
-          <Button type="button" onClick={(event) => { setRuntimeProfileOpen(true, undefined, 'execution'); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"><Cpu className="h-4 w-4 text-slate-400" /><span className="flex-1">执行器与模型</span><ChevronRight className="h-3.5 w-3.5 text-slate-300" /></Button>
-          <Button type="button" onClick={(event) => { onPortalNavigate(null); setTopology('teamManagement'); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"><Users className="h-4 w-4 text-slate-400" /><span className="flex-1">团队与助手</span><ChevronRight className="h-3.5 w-3.5 text-slate-300" /></Button>
-          {window.weworkHost && <Button type="button" onClick={(event) => { onOpenMonitor(); event.currentTarget.closest('details')?.removeAttribute('open'); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"><Activity className="h-4 w-4 text-slate-400" /><span className="flex-1">运行监控台</span><ChevronRight className="h-3.5 w-3.5 text-slate-300" /></Button>}
-          <div className="mx-2 my-1 h-px bg-slate-100" />
+        <div className="ww-account-menu absolute bottom-[calc(100%+8px)] left-3 z-50 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+          <div className="ww-account-heading"><span className="ww-account-avatar"><UserRound size={18} /></span><div><strong>本地用户</strong><span>此设备上的工作平台</span></div><span className="ww-account-status" title="本地能力已连接" /></div>
+          <div className="ww-account-list">
+            <Button className="ww-account-row" variant="ghost" type="button" onClick={(event) => { setRuntimeProfileOpen(true, undefined, 'general'); event.currentTarget.closest('details')?.removeAttribute('open'); }}><Settings2 className="h-4 w-4" /><span><strong>平台设置</strong></span><ChevronRight className="h-3.5 w-3.5" /></Button>
+            <Button className="ww-account-row" variant="ghost" type="button" onClick={(event) => { setRuntimeProfileOpen(true, undefined, 'execution'); event.currentTarget.closest('details')?.removeAttribute('open'); }}><Cpu className="h-4 w-4" /><span><strong>执行器与模型</strong></span><ChevronRight className="h-3.5 w-3.5" /></Button>
+            <Button className="ww-account-row" variant="ghost" type="button" onClick={(event) => { onPortalNavigate(null); setTopology('teamManagement'); event.currentTarget.closest('details')?.removeAttribute('open'); }}><Users className="h-4 w-4" /><span><strong>团队与助手</strong></span><ChevronRight className="h-3.5 w-3.5" /></Button>
+            {window.weworkHost && <Button className="ww-account-row" variant="ghost" type="button" onClick={(event) => { onOpenMonitor(); event.currentTarget.closest('details')?.removeAttribute('open'); }}><Activity className="h-4 w-4" /><span><strong>运行监控台</strong></span><ChevronRight className="h-3.5 w-3.5" /></Button>}
+          </div>
           <div className="ww-account-footer">偏好与配置保存在此设备</div>
         </div>
       </details>

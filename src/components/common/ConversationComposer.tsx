@@ -141,6 +141,7 @@ export function ConversationComposer({
         <Textarea
           ref={inputRef}
           aria-label={ariaLabel}
+          disabled={disabled}
           rows={1}
           autoComplete="off"
           autoCorrect="off"

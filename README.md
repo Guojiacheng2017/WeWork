@@ -1,5 +1,7 @@
 # WeWork
 
+WeWork opens directly into a collaborative workspace and uses the Pi runtime to run assistants.
+
 WeWork is one local-first application project with four explicit runtime boundaries:
 
 - `src/`: React renderer and local team experience;

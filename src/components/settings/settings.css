@@ -1,20 +1,27 @@
 /* Device settings, from the account entry through its configuration panels. */
 .ww-account .ww-account-trigger { border-radius: 999px; padding: 8px; gap: 10px; }
 .ww-account[open] .ww-account-trigger { background: #f1f5f9; }
-.ww-account .ww-account-menu { width: 264px; max-width: calc(100vw - 24px); right: auto; padding: 8px; border-radius: 20px; border-color: #e2e8f0; box-shadow: 0 12px 40px -12px rgb(15 23 42 / 22%); animation: settings-enter 150ms ease-out; }
-.ww-account-heading { display: flex; align-items: center; gap: 10px; padding: 10px 8px 16px; margin-bottom: 4px; border-bottom: 1px solid #f1f5f9; }
+.ww-account .ww-account-menu { width: 336px; max-width: calc(100vw - 24px); right: auto; padding: 10px; border-radius: 22px; border-color: #dbe4ee; box-shadow: 0 18px 54px -18px rgb(15 23 42 / 28%); animation: settings-enter 150ms ease-out; }
+.ww-account-heading { display: flex; align-items: center; gap: 10px; padding: 10px 8px 14px; border-bottom: 1px solid #f1f5f9; }
 .ww-account-avatar { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: #f1f5f9; color: #475569; }
 .ww-account-heading strong { display: block; color: #0f172a; font-size: 13px; }
 .ww-account-heading div > span { display: block; font-size: 11px; color: #64748b; margin-top: 2px; }
 .ww-account-status { margin-left: auto; width: 7px; height: 7px; border-radius: 50%; background: #10b981; }
-.ww-account-menu [data-ui=button] { min-height: 40px; border: 0; border-radius: 12px; box-shadow: none; background: transparent; padding: 9px 12px; font-weight: 500; gap: 12px; }
+.ww-account-list { display: flex; flex-direction: column; gap: 2px; padding: 6px 0; }
+.ww-account-menu .ww-account-row { display: flex; width: 100%; min-height: 42px; flex-direction: row; flex-wrap: nowrap; align-items: center; justify-content: flex-start; border: 0; border-radius: 10px; box-shadow: none; background: transparent; padding: 8px 10px; font-weight: 500; gap: 12px; }
 .ww-account-menu [data-ui=button]:hover { background: #f1f5f9; color: #0f172a; }
-.ww-account-footer { padding: 7px 12px 5px; color: #94a3b8; font-size: 11px; }
-.ww-settings { border-radius: 24px; max-width: 1000px; box-shadow: 0 24px 80px -24px rgb(15 23 42 / 30%); }
+.ww-account-menu .ww-account-row > svg { flex: 0 0 auto; }
+.ww-account-menu .ww-account-row > span { min-width: 0; flex: 1 1 auto; }
+.ww-account-menu .ww-account-row > svg:last-child { margin-left: auto; }
+.ww-account-menu [data-ui=button] strong,.ww-account-menu [data-ui=button] small { display:block; text-align:left; }
+.ww-account-menu [data-ui=button] strong { color:#1e293b; font-size:12px; }
+.ww-account-menu [data-ui=button] small { margin-top:2px; color:#94a3b8; font-size:10px; font-weight:500; }
+.ww-account-footer { border-top:1px solid #f1f5f9; padding:10px 10px 3px; color: #94a3b8; font-size: 10px; }
+.ww-settings { border-radius: 24px; max-width: 1120px; box-shadow: 0 24px 80px -24px rgb(15 23 42 / 30%); }
 .ww-settings-header { height: 76px; padding: 0 28px; }
 .ww-settings-header h3 { font-size: 18px; }
 .ww-settings-header [data-ui=button] { border-radius: 50%; }
-.ww-settings-nav { width: 208px; padding: 20px 14px; background: #f8fafc; }
+.ww-settings-nav { width: 224px; padding: 20px 14px; background: #f8fafc; }
 .ww-settings-nav [data-ui=field] { border: 1px solid #e2e8f0; border-radius: 999px; background: white; }
 .ww-settings-nav nav [data-ui=button] { min-height: 42px; border: 0; border-radius: 999px; font-size: 13px; font-weight: 500; box-shadow: none; }
 .ww-settings-nav nav [aria-current=page] { background: #e8eef4; color: #0f172a; font-weight: 600; }

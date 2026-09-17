@@ -159,3 +159,25 @@ test('steering cannot cross workbench tabs', async () => {
  assert.deepEqual(await manager.steerEmployee('employee','work text',{sessionId:'work-session'}),{accepted:true,runId:'work-run'});
  assert.deepEqual(received,['work text']);
 });
+
+test('stream progress batches for one second and flushes on completion', async () => {
+  const batches = [], ready = Promise.withResolvers(), finish = Promise.withResolvers(), persisted = Promise.withResolvers();
+  let emitEvent;
+  const manager = new RuntimeManager({
+    store: { getRun: async () => null, getCheckpoint: async () => null, putRun: async () => {}, putCheckpoint: async () => {} },
+    journal: new EventJournal(),
+    onEvents: async (_spec, events) => { batches.push(events); persisted.resolve(); },
+    execute: async (_spec, { emit }) => { emitEvent = emit; emit({ type: 'assistant.delta', text: 'first' }); ready.resolve(); await finish.promise; return { messages: [], finalText: 'done' }; }
+  });
+  await manager.start({ id: 'batched', employeeId: 'employee', runtimeProfile: { adapter: 'pi' } });
+  await ready.promise;
+  await new Promise(resolve => setTimeout(resolve, 200));
+  emitEvent({ type: 'assistant.delta', text: 'second' });
+  assert.equal(batches.length, 0);
+  await persisted.promise;
+  assert.deepEqual(batches[0].map(event => event.text), ['first', 'second']);
+  emitEvent({ type: 'assistant.delta', text: 'tail' });
+  const done = manager.active.get('batched').done;
+  finish.resolve(); await done;
+  assert.deepEqual(batches.map(batch => batch.map(event => event.text)), [['first', 'second'], ['tail']]);
+});

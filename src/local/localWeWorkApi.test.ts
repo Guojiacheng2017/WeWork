@@ -28,6 +28,14 @@ describe('local WeWork service', () => {
 
   beforeEach(() => { storage = new MemoryWeWorkStorage(); });
 
+  it('renames a team and persists the normalized name', async () => {
+    const api = createLocalWeWorkApi(storage);
+    const team = await api.createTeam({ name: 'Before' });
+    await api.renameTeam(team.id, '  After  ');
+    expect((await api.snapshot()).teams.find((item) => item.id === team.id)?.name).toBe('After');
+    await expect(api.renameTeam(team.id, '   ')).rejects.toThrow('团队名称');
+  });
+
   it('embeds the workflow lead skill on new and transferred team leads', async () => {
     const api = createLocalWeWorkApi(storage);
     const team = await api.createTeam({ name: 'Skill team', runtime: 'Workspace' });
@@ -123,6 +131,17 @@ describe('local WeWork service', () => {
     await expect(api.addEmployee('team-1', { displayName: 'Unsafe', roleName: 'Engineer', runtime: 'Pi', sessionExecution: unsafe as any })).rejects.toThrow(/session execution/i);
     await expect(api.updateEmployee('employee-1', { displayName: 'Worker', roleName: 'Engineer', runtime: 'Pi', skills: [], sessionExecution: unsafe as any })).rejects.toThrow(/session execution/i);
     expect(storage.getItem('wework.local.v1')).not.toContain('raw-token');
+  });
+
+  it('keeps an unconfigured workspace employee unconfigured despite a team default', async () => {
+    const profile: RuntimeProfile = { ...profileInput, id: 'team-default', createdAt: 'before', updatedAt: 'before' };
+    storage.setItem('wework.local.v1', JSON.stringify({
+      teams: [{ ...seed[0], defaultRuntimeProfileId: profile.id }], runtimeProfiles: [profile], eventCursor: 0,
+    }));
+    const api = createLocalWeWorkApi(storage);
+    const employee = await api.addEmployee('team-1', { displayName: 'New', roleName: '', runtime: 'Workspace' });
+    const restored = (await createLocalWeWorkApi(storage).snapshot()).teams[0].employees.find(item => item.id === employee.id);
+    expect(restored?.activeSession.execution).toBeUndefined();
   });
 
   it('migrates a legacy employee profile into an owned session execution config', async () => {

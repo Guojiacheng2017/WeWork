@@ -57,7 +57,7 @@ export class FileWeWorkStorage {
 
 const uiMethods = new Set([
   'ensureConversation', 'snapshot', 'listRuntimeProfiles', 'createRuntimeProfile', 'bootstrap', 'importLocalState',
-  'createTeam', 'archiveTeam', 'restoreTeam', 'deleteTeam', 'updateTeamWorkspace', 'addEmployee', 'removeEmployee', 'updateEmployee', 'resetEmployeeContext', 'setLead',
+  'createTeam', 'renameTeam', 'archiveTeam', 'restoreTeam', 'deleteTeam', 'updateTeamWorkspace', 'addEmployee', 'removeEmployee', 'updateEmployee', 'resetEmployeeContext', 'setLead',
   'createWork', 'assignWork', 'updateWork', 'cancelWork', 'completeCurrent', 'returnCurrent',
   'acknowledgeEmployeeError', 'getWorkflow', 'saveWorkflow', 'createWorkflow', 'selectWorkflow', 'listWorkflowReferences', 'configureWorkType', 'startWorkflow', 'sendMessage', 'sendAssistantMessage', 'sendTeamMessage',
   'getWorkContext', 'readTaskField', 'readWorkDocument', 'saveWorkDocument', 'reportProgress', 'submitDeliverable',
@@ -231,7 +231,7 @@ export class WeWorkService {
     if (method === 'sendTeamMessage') args = [args[0],args[1],undefined,args[3]];
     if (['saveWorkDocument', 'reportProgress', 'submitDeliverable', 'requestHandoff'].includes(method)) args = args.slice(0, 2);
     const result = await this.api[method](...args);
-    if (this.workspaceLayout && method === 'createTeam') await this.#initializeWorkspaces([result]);
+    if (this.workspaceLayout && (method === 'createTeam' || method === 'renameTeam')) await this.#initializeWorkspaces([result]);
     if (this.workspaceLayout && method === 'addEmployee') {
       const state = await this.api.snapshot();
       const team = state.teams.find((candidate) => candidate.id === args[0]);

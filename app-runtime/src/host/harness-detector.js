@@ -66,9 +66,8 @@ function runProcess(file, args, { timeoutMs = 1500, environment = process.env } 
 }
 
 export class HarnessDetector {
-  constructor({ platform = process.platform, run = runProcess, readText = (path) => readFile(path, 'utf8'), home = homedir(), env = process.env, bundledSdh = async () => false, windowsCommandWrapperPath } = {}) {
+  constructor({ platform = process.platform, run = runProcess, readText = (path) => readFile(path, 'utf8'), home = homedir(), env = process.env, windowsCommandWrapperPath } = {}) {
     this.platform = platform; this.run = run; this.readText = readText; this.home = home; this.env = env;
-    this.bundledSdh = bundledSdh;
     this.windowsCommandWrapperPath = windowsCommandWrapperPath;
   }
 
@@ -112,10 +111,6 @@ export class HarnessDetector {
   }
 
   async detect() {
-    const bundled = await this.bundledSdh().catch(()=>false);
-    return [
-      { id: 'harness:smalldashharness', harness: 'smalldashharness', kind: 'embedded', available: bundled, executionReady:bundled, weworkToolsReady:bundled, version: bundled ? 'WeWork bundled' : undefined, capabilities:{streaming:bundled,resumeSession:bundled,cancellation:bundled,workspace:bundled,tools:bundled}, configuration: { source: 'wework' } },
-      ...(await Promise.all(EXECUTABLES.map((spec) => this.executable(spec)))),
-    ];
+    return Promise.all(EXECUTABLES.map((spec) => this.executable(spec)));
   }
 }

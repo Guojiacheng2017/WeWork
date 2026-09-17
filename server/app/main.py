@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from .database import Base, build_database, session_dependency
 from .models import Artifact, Employee, Event, Message, RuntimeProfile, RuntimeRun, RuntimeSession, Team, Work, Workflow, uid, utcnow
-from .schemas import AssignWork, BootstrapRequest, EmployeeCreate, EmployeeUpdate, LeadChange, MessageCreate, RuntimeComplete, RuntimeProfileCreate, RuntimeUpdate, TeamCreate, TeamMessageCreate, TeamWorkspaceUpdate, WorkCreate, WorkUpdate, WorkflowSave, normalize_model_config, normalize_workspace_assignment
+from .schemas import AssignWork, BootstrapRequest, EmployeeCreate, EmployeeUpdate, LeadChange, MessageCreate, RuntimeComplete, RuntimeProfileCreate, RuntimeUpdate, TeamCreate, TeamMessageCreate, TeamUpdate, TeamWorkspaceUpdate, WorkCreate, WorkUpdate, WorkflowSave, normalize_model_config, normalize_workspace_assignment
 from .storage import LocalArtifactStorage, S3ArtifactStorage
 
 
@@ -295,6 +295,14 @@ def create_app(database_url: str | None = None, artifact_root: Path | None = Non
         emit(session, "team.created", team.id, {"teamId": team.id})
         session.commit()
         session.refresh(team)
+        return team_dict(team)
+
+    @app.patch("/v1/teams/{team_id}")
+    def update_team(team_id: str, body: TeamUpdate, session: Session = Depends(db)):
+        team = get_team(session, team_id)
+        team.name = body.name
+        emit(session, "team.updated", team.id, {"teamId": team.id, "fields": ["name"]})
+        session.commit()
         return team_dict(team)
 
     @app.post("/v1/teams/{team_id}/employees", status_code=201)

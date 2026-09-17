@@ -1,2 +1,8 @@
 node_modules/
 dist/
+
+# Local caches
+__pycache__/
+*.pyc
+.pytest_cache/
+.env.local

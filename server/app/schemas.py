@@ -90,6 +90,18 @@ class TeamWorkspaceUpdate(BaseModel):
     workspaceAssignment: WorkspaceAssignment | None = None
 
 
+class TeamUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+
+    @field_validator("name")
+    @classmethod
+    def valid_name(cls, value: str):
+        value = js_trim(value)
+        if not value or re.search(r"[\x00-\x1f\x7f]", value):
+            raise ValueError("invalid team name")
+        return value
+
+
 class TeamCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     description: str = ""

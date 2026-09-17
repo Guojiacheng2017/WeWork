@@ -23,7 +23,7 @@ export async function listAvailableHarnessModels({ detector, sdh, discoverPi = d
     }
   }
 
-  try {
+  if (sdh) try {
     const catalog = await sdh.models();
     models.push(...(catalog.models ?? []).map(mapSdhModel));
     if (catalog.defaultId) defaults.smalldashharness = catalog.defaultId;

@@ -1,11 +1,12 @@
+import { product } from '../../product';
 import './settings.css';
 import { version } from '../../../package.json';
 import { Button, Input, NativeSelect } from '../ui';
 import { useDialogFocus } from '../../hooks/useDialogFocus';
 import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Cpu, Download, FolderGit2, FolderPlus, Info, KeyRound, MonitorCog, Puzzle, RefreshCw, Settings2, X } from 'lucide-react';
+import { BookOpenCheck, CheckCircle2, Cpu, Download, FolderGit2, FolderPlus, Globe2, Info, KeyRound, MonitorCog, Puzzle, RefreshCw, Settings2, X } from 'lucide-react';
 import { useWeWorkStore } from '../../state/weworkStore';
-import { weworkHost, type CredentialMetadata, type HarnessId, type HarnessInstallation, type HarnessModel, type HarnessModelInput, type PluginManifest, type SdhConnection, type WeWorkDataInfo } from '../../runtime/weworkHost';
+import { weworkHost, type AvailableSkill, type CredentialMetadata, type HarnessId, type HarnessInstallation, type HarnessModel, type HarnessModelInput, type PluginManifest, type SdhConnection, type WeWorkDataInfo } from '../../runtime/weworkHost';
 import { displayedHarnessInstallations, harnessCanBeAllowed, harnessNames, harnessNeedsModel, harnessNeedsServiceUrl, harnessSupportsProfiles } from '../../runtime/harnessPresentation';
 import piIcon from '../../assets/harness-icons/pi.svg?no-inline';
 import claudeCodeIcon from '../../assets/harness-icons/claude-code.svg?no-inline';
@@ -29,14 +30,16 @@ const harnessIconSources: Partial<Record<HarnessId, string>> = {
   'gemini-cli': geminiCliIcon,
 };
 
-type SettingsSection = 'general' | 'execution' | 'plugins' | 'storage' | 'about';
+type SettingsSection = 'general' | 'skills' | 'plugins' | 'browser' | 'execution' | 'storage' | 'about';
 
-const settingsNavigation: Array<{ id: SettingsSection; label: string; icon: typeof Settings2 }> = [
-  { id: 'general', label: '常规', icon: Settings2 },
-  { id: 'execution', label: '执行器', icon: Cpu },
-  { id: 'plugins', label: '插件', icon: Puzzle },
-  { id: 'storage', label: '工作区与安全', icon: FolderGit2 },
-  { id: 'about', label: '关于平台', icon: Info },
+const settingsNavigation: Array<{ id: SettingsSection; label: string; group: string; keywords: string; icon: typeof Settings2 }> = [
+  { id: 'general', label: '设置概览', group: '工作平台', keywords: '常规 偏好 状态', icon: Settings2 },
+  { id: 'skills', label: 'Skills', group: '能力与集成', keywords: '技能 能力 wework workspace', icon: BookOpenCheck },
+  { id: 'plugins', label: 'Plugins', group: '能力与集成', keywords: '插件 集成 mcp', icon: Puzzle },
+  { id: 'browser', label: 'Browser', group: '能力与集成', keywords: '浏览器 链接 打开 复制', icon: Globe2 },
+  { id: 'execution', label: '执行器与模型', group: '运行环境', keywords: 'harness 模型 密钥 api', icon: Cpu },
+  { id: 'storage', label: '工作区与数据', group: '运行环境', keywords: 'workspace 文件夹 存储 安全', icon: FolderGit2 },
+  { id: 'about', label: '关于 WeWork', group: '支持', keywords: '版本 平台', icon: Info },
 ];
 
 export function ExecutionSettingsDialog({ onClose, initialSection = 'general' }: { onClose: () => void; initialSection?: SettingsSection | 'workspace' }) {
@@ -46,7 +49,7 @@ export function ExecutionSettingsDialog({ onClose, initialSection = 'general' }:
   const [installations, setInstallations] = useState<HarnessInstallation[]>([]);
   const [allowedHarnesses, setAllowedHarnesses] = useState<HarnessId[]>([]);
   const [loadingHarnesses, setLoadingHarnesses] = useState(true);
-  const [harness, setHarness] = useState<HarnessId>('smalldashharness');
+  const [harness, setHarness] = useState<HarnessId>('pi');
   const [draft, setDraft] = useState({ name: '', provider: 'openai', modelId: '', credentialRef: '', apiKeyEnv: '', baseUrl: '', thinkingLevel: 'off' });
   const [credentials, setCredentials] = useState<CredentialMetadata[]>([]);
   const [credentialDraft, setCredentialDraft] = useState({ label: '', secret: '' });
@@ -62,6 +65,18 @@ export function ExecutionSettingsDialog({ onClose, initialSection = 'general' }:
   const [sdhConnection, setSdhConnection] = useState<SdhConnection>({ baseUrl: '', configured: false });
   const [plugins, setPlugins] = useState<PluginManifest[]>([]);
   const [pluginBusy, setPluginBusy] = useState<string | null>(null);
+  const [skills, setSkills] = useState<AvailableSkill[]>([]);
+  const [skillsReason, setSkillsReason] = useState('');
+  const [skillsLoading, setSkillsLoading] = useState(false);
+  const [skillQuery, setSkillQuery] = useState('');
+  const [linkBehavior, setLinkBehavior] = useState<'system' | 'copy'>(() => window.localStorage.getItem('wework.browser.linkBehavior') === 'copy' ? 'copy' : 'system');
+
+  const refreshSkills = async () => {
+    setSkillsLoading(true);
+    try { const result = await weworkHost.skills(); setSkills(result.skills); setSkillsReason(result.reason ?? ''); }
+    catch (error) { setSkills([]); setSkillsReason(error instanceof Error ? error.message : String(error)); }
+    finally { setSkillsLoading(false); }
+  };
 
   const togglePlugin = async (plugin: PluginManifest) => {
     setPluginBusy(plugin.name); setMessage('');
@@ -108,14 +123,14 @@ export function ExecutionSettingsDialog({ onClose, initialSection = 'general' }:
   const refreshHarnesses = async () => {
     setLoadingHarnesses(true);
     try {
-      const [found, policy, vault, catalog, connection] = await Promise.all([weworkHost.harnesses(), weworkHost.harnessPolicy(), weworkHost.credentials().catch(() => []), weworkHost.harnessModels().catch(() => ({ models: [], defaults: {} })), weworkHost.sdhConnection().catch(() => ({ baseUrl: '', configured: false }))]);
-      setInstallations(found);
+      const [found, policy, vault, catalog, connection] = await Promise.all([weworkHost.harnesses(), weworkHost.harnessPolicy(), weworkHost.credentials().catch(() => []), weworkHost.harnessModels().catch(() => ({ models: [], defaults: {} })), Promise.resolve({ baseUrl: '', configured: false })]);
+      setInstallations(displayedHarnessInstallations(found));
       setAllowedHarnesses(policy.allowedHarnesses);
       setCredentials(vault.filter((item) => item.kind === 'model-api-key'));
       setModels(catalog.models);
       setSdhConnection(connection);
       const ready = found.find((item) => item.executionReady && policy.allowedHarnesses.includes(item.harness));
-      setHarness((current) => found.some((item) => item.harness === current && item.executionReady && policy.allowedHarnesses.includes(current)) ? current : ready?.harness ?? 'smalldashharness');
+      setHarness((current) => found.some((item) => item.harness === current && item.executionReady && policy.allowedHarnesses.includes(current)) ? current : ready?.harness ?? 'pi');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -146,7 +161,11 @@ export function ExecutionSettingsDialog({ onClose, initialSection = 'general' }:
     if (!desktopHostAvailable) return;
     void weworkHost.dataInfo().then(setDataInfo).catch(() => setDataInfo(null));
     void weworkHost.plugins().then(setPlugins).catch(() => setPlugins([]));
+    void refreshSkills();
   }, [desktopHostAvailable]);
+
+  const filteredSkills = skills.filter((skill) => `${skill.name} ${skill.id} ${skill.description}`.toLowerCase().includes(skillQuery.trim().toLowerCase()));
+  const skillUsage = (skillId: string) => teams.flatMap((team) => team.employees).filter((employee) => employee.builtInSkills.some((skill) => skill.id === skillId)).length;
 
   const profileUsage = (profileId: string) => teams.flatMap((team) => team.employees).filter((employee) => employee.defaultRuntimeProfileId === profileId).length;
 
@@ -166,7 +185,7 @@ export function ExecutionSettingsDialog({ onClose, initialSection = 'general' }:
       const saved = await weworkHost.setHarnessPolicy(next);
       setAllowedHarnesses(saved.allowedHarnesses);
       if (!saved.allowedHarnesses.includes(harness)) {
-        setHarness(installations.find((item) => item.executionReady && saved.allowedHarnesses.includes(item.harness))?.harness ?? 'smalldashharness');
+        setHarness(installations.find((item) => item.executionReady && saved.allowedHarnesses.includes(item.harness))?.harness ?? 'pi');
       }
       setMessage('本机 Harness 使用范围已保存');
     } catch (error) {
@@ -194,17 +213,18 @@ export function ExecutionSettingsDialog({ onClose, initialSection = 'general' }:
   };
 
   return <div className="ww-settings-backdrop ww-dialog-backdrop fixed inset-0 z-[100] grid place-items-center bg-slate-900/20 p-2 sm:p-8 backdrop-blur-[2px]" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="WeWork设置" className="ww-settings flex h-[min(760px,calc(100vh-64px))] w-full max-w-[1080px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
-      <header className="ww-settings-header flex h-16 shrink-0 items-center justify-between border-b border-slate-100 px-6"><div><h3 className="text-base font-bold text-slate-900">设置</h3><p className="mt-0.5 text-[11px] text-slate-400">配置这台设备上的WeWork</p></div><Button variant="ghost" type="button" aria-label="关闭设置" onClick={onClose} className="grid h-8 w-8 place-items-center transition-colors"><X className="h-4 w-4" /></Button></header>
+    <section ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={`${product.productName}设置`} className="ww-settings flex h-[min(780px,calc(100vh-64px))] w-full max-w-[1120px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+      <header className="ww-settings-header flex h-16 shrink-0 items-center justify-between border-b border-slate-100 px-6"><div><h3 className="text-base font-bold text-slate-900">WeWork 设置</h3><p className="mt-0.5 text-[11px] text-slate-400">管理这台设备的能力、集成与运行环境</p></div><Button variant="ghost" type="button" aria-label="关闭设置" onClick={onClose} className="grid h-8 w-8 place-items-center transition-colors"><X className="h-4 w-4" /></Button></header>
       <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
         <aside className="ww-settings-nav w-full max-h-52 overflow-y-auto sm:max-h-none sm:w-56 shrink-0 border-r border-slate-100 bg-slate-50/60 p-4">
           <label className="mb-4 block"><span className="sr-only">搜索设置</span><Input type="search" value={settingsQuery} onChange={(event) => setSettingsQuery(event.target.value)} placeholder="搜索设置" className="w-full px-3 py-2 outline-none transition-shadow" /></label>
-          <p className="mb-2 px-2 text-[11px] font-bold tracking-wider text-slate-400">工作平台</p>
-          {settingsNavigation.every((item) => !item.label.toLowerCase().includes(settingsQuery.trim().toLowerCase())) && <p role="status" className="px-2 text-xs text-slate-500">没有匹配的设置，请尝试其他关键词。</p>}
-          <nav aria-label="设置分类" className="space-y-1">{settingsNavigation.filter((item) => item.label.toLowerCase().includes(settingsQuery.trim().toLowerCase())).map((item) => { const Icon = item.icon; const active = section === item.id; return <Button variant="ghost" key={item.id} type="button" aria-current={active ? "page" : undefined} onClick={() => setSection(item.id)} className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-xs font-semibold transition-colors ${active ? 'bg-slate-200/80 text-slate-900' : 'text-slate-600 hover:bg-slate-100'}`}><Icon className="h-4 w-4" /><span>{item.label}</span></Button>; })}</nav>
+          {settingsNavigation.every((item) => !`${item.label} ${item.keywords}`.toLowerCase().includes(settingsQuery.trim().toLowerCase())) && <p role="status" className="px-2 text-xs text-slate-500">没有匹配的设置，请尝试其他关键词。</p>}
+          <nav aria-label="设置分类" className="space-y-4">{[...new Set(settingsNavigation.map((item) => item.group))].map((group) => { const items=settingsNavigation.filter((item)=>item.group===group&&`${item.label} ${item.keywords}`.toLowerCase().includes(settingsQuery.trim().toLowerCase())); if(!items.length)return null; return <div key={group}><p className="mb-1 px-3 text-[10px] font-bold tracking-wider text-slate-400">{group}</p><div className="space-y-1">{items.map((item) => { const Icon = item.icon; const active = section === item.id; return <Button variant="ghost" key={item.id} type="button" aria-current={active ? "page" : undefined} onClick={() => setSection(item.id)} className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-xs font-semibold transition-colors ${active ? 'bg-slate-200/80 text-slate-900' : 'text-slate-600 hover:bg-slate-100'}`}><Icon className="h-4 w-4" /><span>{item.label}</span></Button>; })}</div></div>; })}</nav>
           <div className="mt-5 border-t border-slate-200 pt-4"><div className="flex items-center gap-2 px-2 text-[11px] text-slate-500"><span className="h-2 w-2 rounded-full bg-emerald-500" />本地模式</div></div>
         </aside>
         <main className="ww-settings-content min-w-0 flex-1 overflow-y-auto">
+          {section === 'skills' && <div className="space-y-5 p-7"><div className="flex items-start justify-between gap-5"><div><h3 className="text-lg font-bold text-slate-900">Skills</h3><p className="mt-1 text-xs text-slate-400">查看 WeWork 内置与当前 Workspace 可发现的技能；具体分配在助手配置中完成。</p></div><Button type="button" disabled={skillsLoading} onClick={()=>void refreshSkills()} className="flex shrink-0 items-center gap-2 border border-slate-200 px-4 py-2.5 text-xs"><RefreshCw className={`h-4 w-4 ${skillsLoading?'animate-spin':''}`}/>重新扫描</Button></div><div className="grid grid-cols-3 gap-3">{[['可用 Skills',skills.length],['WeWork 内置',skills.filter(s=>s.source==='wework').length],['Workspace',skills.filter(s=>s.source==='workspace').length]].map(([label,count])=><div key={String(label)} className="rounded-2xl bg-slate-50 p-4"><strong className="block text-xl text-slate-900">{count}</strong><span className="text-[11px] text-slate-500">{label}</span></div>)}</div><Input type="search" aria-label="搜索 Skills" value={skillQuery} onChange={event=>setSkillQuery(event.target.value)} placeholder="搜索 Skill 名称、ID 或说明" className="w-full px-4 py-2.5"/>{skillsReason&&<p className="rounded-xl bg-amber-50 px-4 py-3 text-xs text-amber-700">{skillsReason}</p>}<div className="grid grid-cols-2 gap-3">{filteredSkills.map(skill=>{const usage=skillUsage(skill.id);return <article key={skill.id} className="border border-slate-200 p-4"><div className="flex items-start gap-3"><span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${skill.source==='wework'?'bg-violet-50 text-violet-600':'bg-emerald-50 text-emerald-600'}`}><BookOpenCheck className="h-4 w-4"/></span><div className="min-w-0"><strong className="block truncate text-sm text-slate-900">{skill.name}</strong><span className="mt-1 inline-block rounded bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">{skill.source==='wework'?'WeWork 内置':'Workspace'}</span></div><span className="ml-auto shrink-0 text-[10px] text-slate-400">{usage?`${usage} 名助手使用`:'未分配'}</span></div><p className="mt-3 text-xs text-slate-500">{skill.description||'暂无说明'}</p><p className="mt-2 truncate font-mono text-[10px] text-slate-400">{skill.id}</p></article>})}</div>{!skillsLoading&&!filteredSkills.length&&<div className="rounded-2xl border border-dashed border-slate-200 p-10 text-center text-xs text-slate-400">没有匹配的 Skill</div>}</div>}
+          {section === 'browser' && <div className="space-y-6 p-7"><div><h3 className="text-lg font-bold text-slate-900">Browser</h3><p className="mt-1 text-xs text-slate-400">控制 WeWork 内容中的网页链接如何离开当前工作区。</p></div><section className="rounded-2xl border border-slate-200 p-5"><h4 className="text-sm font-bold text-slate-800">网页链接</h4><p className="mt-1 text-xs text-slate-500">仅处理 http 与 https 链接，当前 DAG、会话和输入内容保持原位。</p><div className="mt-4 grid grid-cols-2 gap-3">{([{id:'system',title:'在系统浏览器打开',description:'点击后交给 macOS 默认浏览器。'},{id:'copy',title:'复制链接',description:'点击后只复制地址，不离开 WeWork。'}] as const).map(option=><button key={option.id} type="button" aria-pressed={linkBehavior===option.id} onClick={()=>{setLinkBehavior(option.id);window.localStorage.setItem('wework.browser.linkBehavior',option.id);}} className={`rounded-2xl border p-4 text-left transition-colors ${linkBehavior===option.id?'border-sky-400 bg-sky-50 ring-2 ring-sky-100':'border-slate-200 hover:bg-slate-50'}`}><span className="flex items-center gap-2 text-sm font-bold text-slate-800"><Globe2 className="h-4 w-4"/>{option.title}</span><span className="mt-2 block text-xs leading-5 text-slate-500">{option.description}</span></button>)}</div></section><section className="rounded-2xl bg-slate-50 p-5"><strong className="text-sm text-slate-800">Browser 能力边界</strong><p className="mt-2 text-xs text-slate-500">Browser 负责打开任务材料与外部参考；网页自动化能力由对应 Plugin 提供，并在 Plugins 中启停。</p></section></div>}
           {section === 'storage' && <DataWorkspaceSettings dataInfo={dataInfo} />}
           {section === 'plugins' && <div className="space-y-5 p-7"><div className="flex items-start justify-between gap-5"><div><h3 className="text-lg font-bold text-slate-900">插件</h3><p className="mt-1 text-xs text-slate-400">管理这台设备可供团队启用的 WeWork Plugin。具体使用范围仍在团队设置中决定。</p></div><Button variant="primary" type="button" disabled={!desktopHostAvailable||pluginBusy!==null} onClick={()=>void installPlugin()} className="flex shrink-0 items-center gap-2 rounded-xl px-4 py-2.5 text-xs"><FolderPlus className="h-4 w-4"/>安装插件</Button></div>{message&&<p role="status" className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">{message}</p>}<div className="space-y-3">{plugins.length ? plugins.map((plugin)=><article key={plugin.name} className={`rounded-xl border p-5 transition-colors ${plugin.enabled?'border-sky-200 bg-sky-50/30':'border-slate-200 bg-white'}`}><div className="flex items-start gap-4"><span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${plugin.enabled?'bg-sky-100 text-sky-700':'bg-slate-100 text-slate-400'}`}><Puzzle className="h-5 w-5"/></span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><strong className="text-sm text-slate-900">{plugin.interface?.displayName??plugin.name}</strong><span className="rounded bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">v{plugin.version}</span><span className={`rounded px-2 py-0.5 text-[11px] font-semibold ${plugin.source==='bundled'?'bg-violet-50 text-violet-700':'bg-cyan-50 text-cyan-700'}`}>{plugin.source==='bundled'?'内置':'本地安装'}</span></div><p className="mt-1 text-xs leading-5 text-slate-500">{plugin.interface?.shortDescription??plugin.description}</p><p className="mt-2 font-mono text-[11px] text-slate-400">{plugin.name} · .wework-plugin</p></div><div className="flex shrink-0 flex-col items-end gap-1.5"><button type="button" role="switch" aria-label={`${plugin.enabled?'停用':'启用'} ${plugin.interface?.displayName??plugin.name}`} aria-checked={plugin.enabled} disabled={pluginBusy!==null} onClick={()=>void togglePlugin(plugin)} className={`relative h-6 w-11 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300 ${plugin.enabled?'bg-emerald-500':'bg-slate-300'} disabled:opacity-50`}><span className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow-sm transition-[left] ${plugin.enabled?'left-6':'left-1'}`}/></button><span className={`text-[10px] font-semibold ${plugin.enabled?'text-emerald-600':'text-slate-400'}`}>{pluginBusy===plugin.name?'保存中…':plugin.enabled?'设备已启用':'设备已停用'}</span></div></div></article>) : <div className="rounded-xl border border-dashed border-slate-200 p-8 text-center text-xs text-slate-400">{desktopHostAvailable?'没有发现 Plugin，可从本机目录安装':'Plugin 安装与管理需要 Desktop Host'}</div>}</div></div>}
           {section === 'execution' && <div className="space-y-5 p-7">

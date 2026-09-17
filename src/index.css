@@ -32,10 +32,7 @@ html.wework-desktop .wework-stage-header {
 }
 html.wework-desktop .wework-stage-header button,
 html.wework-desktop .wework-stage-header nav { -webkit-app-region: no-drag; }
-html.wework-desktop aside[data-collapsed="true"] .wework-window-controls button {
-  position: fixed; left: 104px; top: 10px;
-}
-html.wework-desktop aside[data-collapsed="true"] + main > .wework-stage-header { padding-left: 84px; }
+html.wework-desktop aside[data-collapsed="true"] + main > .wework-stage-header { padding-left: 20px; }
 html.wework-desktop .wework-stage-header > div:first-child { flex: 1; }
 html.wework-desktop .wework-stage-header > div:last-child { max-width: 100%; overflow-x: auto; }
 html.wework-desktop .wework-stage-header button { white-space: nowrap; }
@@ -228,17 +225,9 @@ html.wework-desktop .wework-stage-header .ww-view-switcher {
    remain clickable: Electron drag regions intercept real pointer events. */
 html.wework-desktop .wework-stage-header { -webkit-app-region: no-drag; }
 html.wework-desktop .wework-stage-header > div:first-child { -webkit-app-region: drag; }
-html.wework-desktop aside[data-collapsed="true"] .wework-window-controls { -webkit-app-region: no-drag; }
+html.wework-desktop aside[data-collapsed="true"] .wework-window-controls { -webkit-app-region: drag; }
 
 /* Keep the sidebar toggle beside the native window controls in both states. */
-html.wework-desktop .wework-window-controls button {
-  position: fixed; left: 100px; top: 12px; width: 36px; height: 36px;
-  border: 1px solid #e2e8f0; border-radius: 11px; background: #fff;
-  box-shadow: 0 1px 2px #0f172a0d; transition: color 150ms ease, background 150ms ease, border-color 150ms ease;
-}
-html.wework-desktop .wework-window-controls button:hover { color: #0369a1; background: #f0f9ff; border-color: #bae6fd; }
-html.wework-desktop aside[data-collapsed="true"] .wework-window-controls button { left: 100px; top: 12px; }
-
 /* A continuous desktop toolbar; sidebar dividers begin below it. */
 html.wework-desktop aside[data-collapsed] { border-right: 0; box-shadow: none; }
 html.wework-desktop aside[data-collapsed]::after {
@@ -251,7 +240,7 @@ html.wework-desktop .wework-window-controls {
 html.wework-desktop .wework-stage-header {
   min-height: 60px; padding-top: 11px; padding-bottom: 11px; background: #fff; backdrop-filter: none; border-bottom-color: #e2e8f0;
 }
-html.wework-desktop aside[data-collapsed="true"] + main > .wework-stage-header { padding-left: 88px; }
+html.wework-desktop aside[data-collapsed="true"] + main > .wework-stage-header { padding-left: 20px; }
 html.wework-desktop .wework-stage-header .stage-team-summary { min-height: 38px; }
 
 /* Round-table workspace: one neutral surface, without an outer card. */
@@ -261,12 +250,7 @@ html.wework-desktop .wework-stage-header .stage-team-summary { min-height: 38px;
 /* Match the sidebar rail to the rendered toolbar, including wrapped actions. */
 html.wework-desktop .wework-window-controls { height: var(--wework-toolbar-height, 60px); }
 html.wework-desktop aside[data-collapsed]::after { top: var(--wework-toolbar-height, 60px); }
-html.wework-desktop .wework-window-controls button {
-  background: transparent; border-color: transparent; box-shadow: none; color: #64748b;
-}
-html.wework-desktop .wework-window-controls button:hover {
-  background: #f1f5f9; border-color: transparent; color: #334155;
-}
+html.wework-desktop .wework-brand-control { -webkit-app-region: no-drag; }
 
 /* Round-table motion shares a restrained, interruptible easing curve. */
 .wework-round-layout { --round-ease: cubic-bezier(.22,1,.36,1); }
@@ -349,14 +333,14 @@ html.wework-desktop .wework-window-controls button:hover {
 .workbench-window-actions { top:54px; }
 .workbench-folder-tabs { position:absolute; top:0; left:0; right:0; height:44px; display:flex; align-items:end; gap:0; padding:0 20px 0 0; overflow-x:auto; overflow-y:hidden; scrollbar-width:none; background:transparent; }
 .workbench-folder-tabs::-webkit-scrollbar { display:none; }
-.workbench-folder-tab { position:relative; isolation:isolate; z-index:1; display:flex; flex-shrink:0; align-items:center; gap:8px; height:40px; min-width:120px; max-width:240px; margin-right:0; padding:0 32px 0 22px; border:0; border-radius:18px 18px 0 0; background:transparent; color:#64748b; font-size:12px; cursor:pointer; }
-.workbench-folder-tab::before { content:""; position:absolute; inset:0; z-index:-1; background:#dce2e9; border-radius:18px 18px 0 0; }
-.workbench-folder-tab::after { content:""; position:absolute; left:-18px; right:-18px; bottom:0; height:18px; z-index:-1; pointer-events:none; background:radial-gradient(circle at 0 0, transparent 17.5px, var(--folder-tab-fill, #dce2e9) 18px) left / 18px 18px no-repeat, radial-gradient(circle at 100% 0, transparent 17.5px, var(--folder-tab-fill, #dce2e9) 18px) right / 18px 18px no-repeat; }
-.workbench-folder-tab:hover { --folder-tab-fill:#edf0f4; }
-.workbench-folder-tab:hover::before { background:#edf0f4; }
-.workbench-folder-tab[aria-selected="true"] { z-index:3; height:44px; color:#0f172a; font-weight:600; }
-.workbench-folder-tab[aria-selected="true"] { --folder-tab-fill:white; }
-.workbench-folder-tab[aria-selected="true"]::before { background:white; }
+:is(.workbench-folder-tab, .workspace-tab) { position:relative; isolation:isolate; z-index:1; display:flex; flex-shrink:0; align-items:center; gap:8px; height:40px; min-width:120px; max-width:240px; margin-right:0; padding:0 32px 0 22px; border:0; border-radius:18px 18px 0 0; background:transparent; color:#64748b; font-size:12px; cursor:pointer; }
+:is(.workbench-folder-tab, .workspace-tab)::before { content:""; position:absolute; inset:0; z-index:-1; background:#dce2e9; border-radius:18px 18px 0 0; }
+:is(.workbench-folder-tab, .workspace-tab)::after { content:""; position:absolute; left:-18px; right:-18px; bottom:0; height:18px; z-index:-1; pointer-events:none; background:radial-gradient(circle at 0 0, transparent 17.5px, var(--folder-tab-fill, #dce2e9) 18px) left / 18px 18px no-repeat, radial-gradient(circle at 100% 0, transparent 17.5px, var(--folder-tab-fill, #dce2e9) 18px) right / 18px 18px no-repeat; }
+:is(.workbench-folder-tab, .workspace-tab):hover { --folder-tab-fill:#edf0f4; }
+:is(.workbench-folder-tab, .workspace-tab):hover::before { background:#edf0f4; }
+:is(.workbench-folder-tab, .workspace-tab):is([aria-selected="true"], [data-active="true"]) { z-index:3; height:44px; color:#0f172a; font-weight:600; }
+:is(.workbench-folder-tab, .workspace-tab):is([aria-selected="true"], [data-active="true"]) { --folder-tab-fill:white; }
+:is(.workbench-folder-tab, .workspace-tab):is([aria-selected="true"], [data-active="true"])::before { background:white; }
 .workbench-folder-tab:focus-visible { outline:none; }
 .workbench-folder-tab:focus-visible > span:first-child { text-decoration:underline; text-decoration-color:#38bdf8; text-underline-offset:5px; }
 

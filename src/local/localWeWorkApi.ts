@@ -17,7 +17,7 @@ type WorkInput = Pick<WorkItem, 'title' | 'goal' | 'priority' | 'category' | 'ru
 
 export interface WeWorkStorage {
   getItem(key: string): string | null;
-  setItem(key: string, value: string): void;
+  setItem(key: string, value: string, mode?: 'stream'): void;
 }
 
 export class MemoryWeWorkStorage implements WeWorkStorage {
@@ -73,6 +73,9 @@ export const migrateSessionExecution = (state: LocalState) => {
   let changed = false;
   for (const team of state.teams) for (const employee of team.employees) {
     if (employee.activeSession.execution) continue;
+    // Workspace employees have not chosen an execution harness yet. Only an
+    // explicit employee profile may opt them into legacy profile migration.
+    if (employee.runtime === 'Workspace' && !employee.defaultRuntimeProfileId) continue;
     const profileId = employee.defaultRuntimeProfileId ?? team.defaultRuntimeProfileId;
     const profile = state.runtimeProfiles.find((candidate) => candidate.id === profileId);
     if (profile) { employee.activeSession.execution = sessionExecutionFromProfile(profile); changed = true; }
@@ -100,14 +103,14 @@ export function createLocalWeWorkApi(
     cachedState = clone(state);
     return state;
   };
-  const write = (state: LocalState) => {
+  const write = (state: LocalState, mode?: 'stream') => {
     state.eventCursor += 1;
-    storage.setItem(key, JSON.stringify(state));
+    storage.setItem(key, JSON.stringify(state), mode);
   };
-  const mutate = <T>(operation: (state: LocalState) => T): T => {
+  const mutate = <T>(operation: (state: LocalState) => T, mode?: 'stream'): T => {
     const state = read();
     const result = operation(state);
-    write(state);
+    write(state, mode);
     return clone(result);
   };
   const findEmployee = (state: LocalState, employeeId: string) => {
@@ -294,6 +297,13 @@ export function createLocalWeWorkApi(
       const employees = input.initializeLead === false ? [] : [lead];
       const team: WeWorkTeam = { weworkSessionId: identifier('wework'), workflowLeadSkillMigrated: true, id: identifier('team'), name: input.name, description: input.description || '', topology: 'roundTable', employees, pendingWorks: [], modules: normalizeTeamModules(undefined), workspaceAssignment: normalizeWorkspaceAssignment(input.workspaceAssignment) };
       state.teams.push(team);
+      return team;
+    }),
+    renameTeam: async (teamId: string, name: string) => mutate((state) => {
+      const team = findTeam(state, teamId);
+      const normalized = name.trim();
+      if (!normalized || normalized.length > 200 || /[\x00-\x1f\x7f]/.test(normalized)) throw new Error('团队名称必须为 1–200 个有效字符');
+      team.name = normalized;
       return team;
     }),
     configureTeamModules: async (teamId: string, input: TeamModuleRegistry) => mutate((state) => {
@@ -673,7 +683,7 @@ export function createLocalWeWorkApi(
         seen = event.sequence;
       }
       session.updatedAt = now();
-    }),
+    }, 'stream'),
     sendAssistantMessage: async (employeeId: string, text: string, sessionId?: string) => mutate((state) => {
       const { employee } = findEmployee(state, employeeId);
       const session = sessionId ? employeeSessions(employee).find(session => session.id === sessionId) : employee.activeSession;

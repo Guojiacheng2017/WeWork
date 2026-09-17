@@ -10,8 +10,8 @@ describe('harness settings presentation', () => {
     expect(harnessNeedsModel('codex-cli')).toBe(false);
   });
 
-  it('requires a service URL only for remote sdh', () => {
-    expect(harnessNeedsServiceUrl('smalldashharness')).toBe(true);
+  it('does not expose optional service configuration in the default build', () => {
+    expect(harnessNeedsServiceUrl('smalldashharness')).toBe(false);
     expect(harnessNeedsServiceUrl('pi')).toBe(false);
   });
 
@@ -29,5 +29,6 @@ describe('harness settings presentation', () => {
     };
 
     expect(displayedHarnessInstallations([pi])).toContainEqual(pi);
+    expect(displayedHarnessInstallations([{ ...pi, harness: 'smalldashharness' }, pi])).toEqual([pi]);
   });
 });
