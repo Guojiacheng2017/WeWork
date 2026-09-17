@@ -58,5 +58,6 @@
       "maintainer": "WeWork",
       "synopsis": "wework digital employee collaboration desktop"
     }
-  }
+  },
+  "license": "GPL-3.0-only"
 }

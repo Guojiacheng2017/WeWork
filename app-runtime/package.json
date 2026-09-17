@@ -3,7 +3,9 @@
   "private": true,
   "version": "2.1.0",
   "type": "module",
-  "engines": { "node": ">=22.19.0" },
+  "engines": {
+    "node": ">=22.19.0"
+  },
   "scripts": {
     "start": "node src/host-main.js",
     "test": "node --test",
@@ -13,5 +15,6 @@
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.84.3",
     "@earendil-works/pi-ai": "0.84.3"
-  }
+  },
+  "license": "GPL-3.0-only"
 }

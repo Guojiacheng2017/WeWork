@@ -53,3 +53,11 @@ WeWork is a desktop app for AI team collaboration built around a local workspace
 ### Before you start
 
 Assistant execution currently uses Pi, which must be installed and authenticated on your device. The desktop app provides local workspace selection and task execution.
+
+## 许可证 / License
+
+Copyright (c) 2026, Jcus.
+
+本项目采用 [GNU General Public License v3.0](LICENSE)（GPL-3.0-only）。第三方组件保留各自的许可证和版权声明。
+
+This project is licensed under the [GNU General Public License v3.0](LICENSE) (GPL-3.0-only). Third-party components retain their respective licenses and copyright notices.
